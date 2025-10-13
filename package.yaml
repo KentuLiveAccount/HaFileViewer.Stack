@@ -1,0 +1,46 @@
+name: ha-file-viewer
+version: 0.1.0.0
+license: MIT
+author: "KentuLiveAccount"
+extra-source-files: []
+
+library:
+  exposed-modules: HaFileViewer.Backend
+  source-dirs: src
+  ghc-options: -Wall
+  dependencies:
+    - base >= 4.9 && < 5
+    - bytestring
+    - text
+    - filepath
+    - directory
+
+executables:
+  ha-file-viewer-cui:
+    main: Main.hs
+    source-dirs: app/cui
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    dependencies:
+      - ha-file-viewer
+      - base
+      - bytestring
+      - text
+      - filepath
+      - directory
+
+  ha-file-viewer-web:
+    main: Main.hs
+    source-dirs: app/web
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    dependencies:
+      - ha-file-viewer
+      - base
+      - bytestring
+      - text
+      - filepath
+      - directory
+      - scotty
+      - aeson
+      - wai-extra
+      - http-types
+

@@ -1,0 +1,65 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.37.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           ha-file-viewer
+version:        0.1.0.0
+author:         KentuLiveAccount
+maintainer:     KentuLiveAccount
+license:        MIT
+license-file:   LICENSE
+build-type:     Simple
+
+library
+  exposed-modules:
+      HaFileViewer.Backend
+  other-modules:
+      Paths_ha_file_viewer
+  hs-source-dirs:
+      src
+  ghc-options: -Wall
+  build-depends:
+      base >=4.9 && <5
+    , bytestring
+    , directory
+    , filepath
+    , text
+  default-language: Haskell2010
+
+executable ha-file-viewer-cui
+  main-is: Main.hs
+  other-modules:
+      Paths_ha_file_viewer
+  hs-source-dirs:
+      app/cui
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base
+    , bytestring
+    , directory
+    , filepath
+    , ha-file-viewer
+    , text
+  default-language: Haskell2010
+
+executable ha-file-viewer-web
+  main-is: Main.hs
+  other-modules:
+      Paths_ha_file_viewer
+  hs-source-dirs:
+      app/web
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , base
+    , bytestring
+    , directory
+    , filepath
+    , ha-file-viewer
+    , http-types
+    , scotty
+    , text
+    , wai-extra
+  default-language: Haskell2010
