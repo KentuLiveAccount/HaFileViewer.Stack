@@ -23,7 +23,7 @@ stack build
 How to try the CUI
 
 ```powershell
-stack exec -- ha-file-viewer-cui -- <path-to-large-file>
+stack exec -- ha-file-viewer-cui path-to-large-file>
 ```
 
 How to try the webserver
