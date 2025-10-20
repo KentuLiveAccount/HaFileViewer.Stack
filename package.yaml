@@ -5,7 +5,9 @@ author: "KentuLiveAccount"
 extra-source-files: []
 
 library:
-  exposed-modules: HaFileViewer.Backend
+  exposed-modules: 
+    - HaFileViewer.Backend
+    - HaFileViewer.LineMap
   source-dirs: src
   ghc-options: -Wall
   dependencies:
@@ -14,6 +16,7 @@ library:
     - text
     - filepath
     - directory
+    - vector
 
 executables:
   ha-file-viewer-cui:

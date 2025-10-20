@@ -1,40 +1,54 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import HaFileViewer.Backend
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as C8
+import HaFileViewer.LineMap
+import qualified Data.Text as T
 import System.Environment (getArgs)
 import System.IO
-import Data.Int (Int64)
+import Data.IORef
+import Text.Read (readMaybe)
 
-pageSizeBytes :: Int
-pageSizeBytes = 4096
+defaultPageLines :: Int
+defaultPageLines = 25
 
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    [path] -> run path
-    _ -> putStrLn "Usage: ha-file-viewer-cui <file>"
+    [path] -> run path defaultPageLines
+    [path, pStr] | Just p <- readMaybe pStr -> run path p
+    _ -> putStrLn "Usage: ha-file-viewer-cui <file> [pageLines]"
 
-run :: FilePath -> IO ()
-run path = do
-  fh <- openFileHandle path
-  putStrLn $ "Opened file, size = " ++ show (fileSize fh) ++ " bytes"
-  loop fh 0
-  closeFileHandle fh
+run :: FilePath -> Int -> IO ()
+run path pageLines = do
+  lm <- openLineMap path indexStepDefault
+  hSetBuffering stdin NoBuffering
+  putStrLn $ "Opened file: " ++ path ++ " (page lines = " ++ show pageLines ++ ")"
+  posRef <- newIORef 0
+  loop lm posRef pageLines
+  closeLineMap lm
 
-loop :: FileHandle -> Integer -> IO ()
-loop fh off = do
-  chunk <- readChunkAt fh off pageSizeBytes
-  C8.putStrLn chunk
-  putStrLn "n: next, p: prev, q: quit"
+loop :: LineMap -> IORef Integer -> Int -> IO ()
+loop lm posRef pageLines = do
+  pos <- readIORef posRef
+  ls <- getLines lm pos pageLines
+  putStrLn $ "-- lines " ++ show pos ++ " to " ++ show (pos + fromIntegral (length ls) - 1) ++ " --"
+  mapM_ (putStrLn . T.unpack) ls
+  putStrLn "Commands: n (next), p (prev), g (goto), q (quit)"
+  putStr "> "
   hFlush stdout
-  c <- getChar
-  _ <- getLine -- consume rest of line
-  case c of
-    'n' -> loop fh (min (fileSize fh) (off + fromIntegral pageSizeBytes))
-    'p' -> loop fh (max 0 (off - fromIntegral pageSizeBytes))
-    'q' -> return ()
-    _   -> loop fh off
+  cmdLine <- getLine
+  case cmdLine of
+    "n" -> do
+      let newPos = pos + fromIntegral pageLines
+      writeIORef posRef newPos
+      loop lm posRef pageLines
+    "p" -> do
+      let newPos = max 0 (pos - fromIntegral pageLines)
+      writeIORef posRef newPos
+      loop lm posRef pageLines
+    ('g':rest) -> case readMaybe (dropWhile (==' ') rest) of
+      Just n | n >= 0 -> do writeIORef posRef n; loop lm posRef pageLines
+      _ -> putStrLn "Usage: g <lineNumber>" >> loop lm posRef pageLines
+    "q" -> return ()
+    _ -> putStrLn "Unknown command" >> loop lm posRef pageLines
