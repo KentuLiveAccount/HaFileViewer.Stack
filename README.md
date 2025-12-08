@@ -4,9 +4,9 @@ Stack project for a gigabyte-scale file viewer.
 
 This workspace contains a minimal scaffold:
 
-- Library: `HaFileViewer.Backend` - core file access primitives (random access reads).
-- Executable: `ha-file-viewer-cui` - simple character UI pager (app/cui/Main.hs).
-- Executable: `ha-file-viewer-web` - small Scotty web server exposing byte ranges and line-oriented endpoints (app/web/Main.hs).
+-- Library: `HaFileViewer.LineMap` - line-oriented access and sparse indexing prototype.
+-- Executable: `ha-file-viewer-cui` - simple character UI pager (app/cui/Main.hs).
+-- Executable: `ha-file-viewer-web` - small Scotty web server exposing line-oriented endpoints (app/web/Main.hs).
 	- New: `/lines` endpoint provides line-oriented access (supports negative indexing from end).
 
 Design notes
@@ -31,10 +31,9 @@ How to try the webserver
 
 ```powershell
 stack exec -- ha-file-viewer-web -- --
-# metadata and byte ranges (existing endpoints):
+# metadata and lines endpoints:
 http://localhost:3000/open?path=C:\\path\\to\\file.txt
-http://localhost:3000/range?path=C:\\path\\to\\file.txt&off=0&len=4096
-# lines (new):
+# lines:
 http://localhost:3000/lines?path=C:\\path\\to\\file.txt&start=0&count=100
 http://localhost:3000/lines?path=C:\\path\\to\\file.txt&start=-10&count=10  # last 10 lines
 ```

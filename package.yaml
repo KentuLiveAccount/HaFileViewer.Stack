@@ -6,7 +6,6 @@ extra-source-files: []
 
 library:
   exposed-modules: 
-    - HaFileViewer.Backend
     - HaFileViewer.LineMap
   source-dirs: src
   ghc-options: -Wall
@@ -14,9 +13,8 @@ library:
     - base >= 4.9 && < 5
     - bytestring
     - text
-    - filepath
-    - directory
     - vector
+    
 
 executables:
   ha-file-viewer-cui:
@@ -26,10 +24,7 @@ executables:
     dependencies:
       - ha-file-viewer
       - base
-      - bytestring
       - text
-      - filepath
-      - directory
 
   ha-file-viewer-web:
     main: Main.hs
@@ -38,9 +33,7 @@ executables:
     dependencies:
       - ha-file-viewer
       - base
-      - bytestring
       - text
-      - filepath
       - directory
       - scotty
       - aeson

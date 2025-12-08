@@ -9,18 +9,15 @@ module HaFileViewer.LineMap
   ) where
 
 import qualified Data.Vector.Storable as VS
-import qualified Data.Vector.Storable.Mutable as VSM
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TEE
 import System.IO
-import Data.Int
 import Data.Word
 import Data.IORef
-import Control.Monad
 import Control.Exception
-import Data.Maybe (fromMaybe)
+ 
 
 type Offset = Integer
 
