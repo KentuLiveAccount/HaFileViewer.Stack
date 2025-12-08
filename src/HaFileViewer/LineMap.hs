@@ -59,7 +59,7 @@ getLines lm start count = do
   let baseLine = (startPos `div` k) * k
   baseOffset <- if baseLine == 0 then return 0 else findOrScanTo lm baseLine
   -- now scan forward from baseOffset until we reach startPos + count
-  lines <- scanLinesFromOffset lm baseOffset startPos count
+  lines <- scanLinesFromOffset lm baseOffset baseLine startPos count
   return lines
 
 -- Count total lines (naive full scan) -- used only when negative indexing requested
@@ -93,40 +93,48 @@ findOrScanTo lm baseLine = do
   loop 0 0
 
 -- Scan lines from a byte offset and return requested slice as Text list
-scanLinesFromOffset :: LineMap -> Offset -> Integer -> Int -> IO [T.Text]
-scanLinesFromOffset lm off startLine count = do
+scanLinesFromOffset :: LineMap -> Offset -> Integer -> Integer -> Int -> IO [T.Text]
+scanLinesFromOffset lm off baseLine startLine count = do
   let h = lmHandle lm
   hSeek h AbsoluteSeek off
   let go curLine acc remaining partial = do
-        if remaining <= 0 then return (reverse acc)
+        if remaining <= 0 then return acc
         else do
           bs <- BS.hGet h 65536
           if BS.null bs
-            then do -- EOF: if partial non-empty, include it
-              let acc' = if BS.null partial then acc else (decodeUtf8Lenient partial):acc
-              return (reverse acc')
+            then do -- EOF: include partial only if it falls within requested window
+              let includePartial = (not (BS.null partial)) && (curLine >= startLine) && (remaining > 0)
+                  acc' = if includePartial then acc ++ [decodeUtf8Lenient partial] else acc
+              return acc'
             else do
               let pieces = BS.split 10 bs -- split on LF
-                  withFirst = case partial of
-                    bs0 | BS.null bs0 -> map decodeUtf8Lenient pieces
-                        | otherwise -> let (p:ps) = pieces in decodeUtf8Lenient (BS.concat [bs0, p]) : map decodeUtf8Lenient ps
-                  -- However we must convert pieces to Text properly and then slice
-                  texts = map decodeUtf8Lenient pieces
+                  chunkEnded = (not (BS.null bs)) && (BS.last bs == 10)
+              -- build list of complete pieces, and carry a new partial if chunk didn't end with NL
+              let (textsBS, newPartial) = case pieces of
+                    [] -> ([], partial)
+                    [only] -> if chunkEnded
+                                then ([if BS.null partial then only else BS.concat [partial, only]], BS.empty)
+                                else ([], if BS.null partial then only else BS.concat [partial, only])
+                    (p:ps) -> if chunkEnded
+                                then ( (if BS.null partial then p else BS.concat [partial,p]) : ps , BS.empty)
+                                else let mid = init ps
+                                         lastp = last ps
+                                         headCombined = if BS.null partial then p else BS.concat [partial,p]
+                                     in ( headCombined : mid, lastp )
+                  texts = map decodeUtf8Lenient textsBS
                   numNew = length texts
-                  startPosReached = curLine + fromIntegral numNew > fromIntegral startLine
-              -- naive approach: collect lines until we have enough
+              -- collect requested slice
               let allLines = texts
                   needed = remaining
-                  -- skip lines before startLine
                   toTake = take needed (drop (fromIntegral (startLine - curLine)) allLines)
-                  acc' = map normalizeLine toTake ++ acc
+                  acc' = acc ++ map normalizeLine toTake
               if length toTake >= needed
-                then return (reverse acc')
+                then return acc'
                 else do
                   let newCur = curLine + fromIntegral numNew
                       newRemaining = remaining - length toTake
-                  go newCur acc' newRemaining BS.empty
-  go 0 [] count BS.empty
+                  go newCur acc' newRemaining newPartial
+  go baseLine [] count BS.empty
 
 -- helpers
 normalizeLine :: T.Text -> T.Text

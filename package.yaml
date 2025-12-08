@@ -40,3 +40,18 @@ executables:
       - wai-extra
       - http-types
 
+tests:
+  ha-file-viewer-test:
+    main: Spec.hs
+    source-dirs: test
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+    dependencies:
+      - ha-file-viewer
+      - base
+      - hspec
+      - temporary
+      - filepath
+      - directory
+      - text
+      - bytestring
+
