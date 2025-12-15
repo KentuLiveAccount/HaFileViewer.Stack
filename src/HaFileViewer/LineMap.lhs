@@ -201,13 +201,29 @@ Examples:
 Helper: Count Total Lines
 --------------------------
 
-Simple full-file scan counting newlines. Opens a separate handle to avoid
-interfering with the main handle's position.
+Scan file counting lines. A line is text terminated by LF or EOF.
+Opens a separate handle to avoid interfering with the main handle's position.
+
+Note: This counts actual lines, not just newlines. A file ending without
+a trailing newline still has its last line counted.
 
 > countTotalLines :: LineMap -> IO Integer
 > countTotalLines lm = do
 >   h <- openBinaryFile (lmPath lm) ReadMode
->   finally (go h 0) (hClose h)
+>   sz <- hFileSize h
+>   if sz == 0
+>     then return 0  -- Empty file has 0 lines
+>     else do
+>       nlCount <- finally (go h 0) (hClose h)
+>       -- Check if file ends with newline
+>       h2 <- openBinaryFile (lmPath lm) ReadMode
+>       hSeek h2 SeekFromEnd (-1)
+>       lastByte <- BS.hGet h2 1
+>       hClose h2
+>       -- If last byte is not LF, add 1 for the final line
+>       let endsWithNL = not (BS.null lastByte) && BS.head lastByte == 10
+>           lineCount = if endsWithNL then nlCount else nlCount + 1
+>       return lineCount
 >   where
 >     go h acc = do
 >       bs <- BS.hGet h 65536
@@ -242,7 +258,13 @@ encountered during scans.
 >         -- Need to scan forward from last known index to build up to targetIdx
 >         let startLine = fromIntegral lastIdx * k
 >             startOffset = fromIntegral (fwd VS.! lastIdx)
->         scanAndBuildIndex lm startOffset startLine baseLine
+>         _ <- scanAndBuildIndex lm startOffset startLine baseLine
+>         -- After building, check if target was cached
+>         fwd' <- readIORef (lmForward lm)
+>         let lastIdx' = VS.length fwd' - 1
+>         if targetIdx <= lastIdx'
+>           then return $ fromIntegral (fwd' VS.! targetIdx)
+>           else return $ fromIntegral (fwd' VS.! lastIdx')  -- Return closest we have
 
 Index Building Strategy
 -----------------------
@@ -392,20 +414,80 @@ Design Trade-offs and Future Enhancements
 
 Current limitations and potential improvements:
 
-1. **No backward index**: Negative indexing requires full scan
-   - Could add sparse backward index for "jump to end" optimization
+1. **Bidirectional Index for Negative Indexing Optimization** (PRIORITY)
    
-2. **No index persistence**: Index rebuilds on each file open
+   Current Issue:
+   - Negative indexing (e.g., getLines lm (-5) 5 for last 5 lines) requires
+     full file scan to count total lines
+   - This defeats the purpose of sparse indexing for end-of-file access
+   
+   Proposed Solution:
+   - Maintain two separate sparse indexes:
+     * lmForward: offsets from start (0, K, 2K, ...) [EXISTING]
+     * lmBackward: offsets from end (EOF, EOF-K, EOF-2K, ...)
+   
+   - When negative index requested:
+     * Use hFileSize to get file size (O(1) syscall)
+     * Scan backward from EOF building backward index
+     * Convert negative index to absolute once we know line position
+   
+   - Keep indexes separate until they overlap:
+     * Track coverage: forwardCoverage and backwardCoverage (line ranges)
+     * When ranges meet, merge into single unified index
+     * After merge, all access becomes O(1) lookup
+   
+   Implementation Strategy:
+   
+   a) Data Structure Changes:
+      ```
+      data LineMap = LineMap
+        { ...
+        , lmBackward  :: IORef (VS.Vector Word64)  -- NEW: EOF-relative offsets
+        , lmBackLines :: IORef Integer              -- NEW: lines counted from end
+        , lmMerged    :: IORef Bool                 -- NEW: indexes merged flag
+        }
+      ```
+   
+   b) Backward Scanning Algorithm:
+      - Start at EOF, read chunks in reverse
+      - Count newlines to find K-line boundaries
+      - Store absolute byte offsets (not EOF-relative)
+      - Challenge: Must handle partial lines at chunk boundaries in reverse
+   
+   c) Convergence Detection:
+      - Forward reaches line M: forwardCoverage = [0, M]
+      - Backward reaches line N from end: backwardCoverage = [N, total]
+      - Converged when M >= N or when they overlap
+      - Merge by sorting all cached offsets
+   
+   d) Benefits:
+      - EOF access becomes O(1) after first backward scan to target
+      - "Jump to end" pattern is fast (common in log viewing)
+      - Eventually converges to full index without upfront cost
+      - Memory cost is same as unidirectional approach
+   
+   e) Edge Cases:
+      - Empty file: both indexes empty, converged immediately
+      - Small file (< 2K lines): indexes meet on first access
+      - Very large file: indexes may never converge (acceptable)
+
+2. **Index Persistence**: Index rebuilds on each file open
    - Could save/load index to sidecar file for instant reopening
+   - Format: simple binary (line count, K, offsets array)
+   - Validate with file size/mtime to detect changes
    
-3. **No concurrent safety**: Multiple threads modifying same LineMap unsafe
+3. **Concurrent Safety**: Multiple threads modifying same LineMap unsafe
    - Could wrap IORefs in MVar or use STM for thread-safe access
+   - Needed for web server handling concurrent requests
    
 4. **Memory-mapped I/O**: Currently uses Handle-based reads
    - Could use mmap for potentially better OS-level caching
+   - Particularly effective for repeated access patterns
    
-5. **Adaptive index density**: Fixed K parameter
+5. **Adaptive Index Density**: Fixed K parameter
    - Could adjust K based on file size or access patterns
+   - Smaller K for frequently-accessed regions
 
 The current design prioritizes simplicity and correctness while still
 providing good performance for gigabyte-scale files in typical viewer usage.
+The bidirectional index enhancement would be the most impactful next step.
