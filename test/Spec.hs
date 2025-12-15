@@ -132,6 +132,54 @@ spec = describe "HaFileViewer.LineMap" $ do
       ls `shouldBe` map T.pack ["P2", "P3"]
       closeLineMap lm
 
+  it "negative access with partial forward index" $
+    withSystemTempDirectory "hfvt" $ \dir -> do
+      let fp = dir </> "partial.txt"
+          -- Create 3000 lines (spans ~3 index steps)
+          contents = T.intercalate "\n" (map (\n -> "LINE" <> T.pack (show n)) [1..3000::Int])
+      TIO.writeFile fp contents
+      lm <- openLineMap fp indexStepDefault
+      -- Build partial forward index (only first ~500 lines)
+      front <- getLines lm 0 500
+      length front `shouldBe` 500
+      case (front, reverse front) of
+        (f:_, l:_) -> do
+          f `shouldBe` T.pack "LINE1"
+          l `shouldBe` T.pack "LINE500"
+        _ -> expectationFailure "Expected non-empty list"
+      -- Now access from end - forward index is incomplete
+      -- This should trigger countTotalLines which scans the rest of the file
+      back <- getLines lm (-10) 10
+      back `shouldBe` map (\n -> T.pack $ "LINE" ++ show n) [2991..3000::Int]
+      -- Verify we can still access middle (should use partial index)
+      mid <- getLines lm 1500 5
+      mid `shouldBe` map (\n -> T.pack $ "LINE" ++ show n) [1501..1505::Int]
+      closeLineMap lm
+
+  it "negative access with fully-built forward index" $
+    withSystemTempDirectory "hfvt" $ \dir -> do
+      let fp = dir </> "fullindex.txt"
+          -- Create 2500 lines
+          contents = T.intercalate "\n" (map (\n -> "N" <> T.pack (show n)) [1..2500::Int])
+      TIO.writeFile fp contents
+      lm <- openLineMap fp indexStepDefault
+      -- Build complete forward index by reading entire file
+      allLines <- getLines lm 0 3000  -- Request more than exists
+      length allLines `shouldBe` 2500
+      case (allLines, reverse allLines) of
+        (f:_, l:_) -> do
+          f `shouldBe` T.pack "N1"
+          l `shouldBe` T.pack "N2500"
+        _ -> expectationFailure "Expected non-empty list"
+      -- Now negative access - forward index is complete
+      -- countTotalLines should still work correctly
+      lastTen <- getLines lm (-10) 10
+      lastTen `shouldBe` map (\n -> T.pack $ "N" ++ show n) [2491..2500::Int]
+      -- Access from middle using negative index
+      fromEnd500 <- getLines lm (-500) 5
+      fromEnd500 `shouldBe` map (\n -> T.pack $ "N" ++ show n) [2001..2005::Int]
+      closeLineMap lm
+
   -- Convergence scenario tests (forward + backward access patterns)
   it "convergence: forward then backward access" $
     withSystemTempDirectory "hfvt" $ \dir -> do
@@ -198,7 +246,6 @@ spec = describe "HaFileViewer.LineMap" $ do
       -- Now test last line - this requires countTotalLines
       allLns <- getLines lm 0 20000  -- Get all lines
       let actualTotal = length allLns
-          lastLine = if null allLns then T.pack "EMPTY" else last allLns
       actualTotal `shouldBe` 10000
       -- Now try negative indexing
       r3 <- getLines lm (-1) 1   -- last line = LINE10000
