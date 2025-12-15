@@ -74,6 +74,14 @@ The default index step of 1024 provides good balance:
 - Memory: ~8 bytes per 1024 lines = 8KB per million lines
 - Speed: Maximum 1024-line scan to reach any target
 
+indexStepDefault :: Int
+------------------
+Recommended default value for the index step parameter.
+
+This constant defines how many lines apart index checkpoints are placed.
+Larger values use less memory but require more scanning; smaller values
+use more memory but enable faster seeks.
+
 > indexStepDefault :: Int
 > indexStepDefault = 1024
 
@@ -87,13 +95,46 @@ The API is deliberately minimal to support the two primary use cases:
 Opening a file initializes the sparse index with just offset 0 (start of file).
 All other index entries build lazily as regions are accessed.
 
+openLineMap :: FilePath -> Int -> IO LineMap
+-------------
+Open a file for line-oriented reading with sparse index.
+
+Parameters:
+  path :: FilePath
+    - Path to the text file to open
+    - File must exist and be readable
+    - File is opened in binary mode for precise byte offset control
+  
+  k :: Int
+    - Index step size (lines between index checkpoints)
+    - Use 'indexStepDefault' (1024) for typical cases
+    - Larger values (e.g., 4096) save memory for huge files
+    - Smaller values (e.g., 256) speed up seeks for frequent random access
+
+Returns:
+  LineMap handle with initial index containing only offset 0
+  Call 'closeLineMap' when done to release file handle
+
 > openLineMap :: FilePath -> Int -> IO LineMap
 > openLineMap path k = do
 >   h <- openBinaryFile path ReadMode
 >   fref <- newIORef (VS.singleton 0) -- offset 0 at line 0
 >   iref <- newIORef 0
 >   return $ LineMap path h k fref iref
->
+
+closeLineMap :: LineMap -> IO ()
+-------------
+Close the file handle associated with a LineMap.
+
+Parameters:
+  lm :: LineMap
+    - The LineMap to close
+    - After calling this, the LineMap must not be used again
+    - The sparse index data is discarded (not persisted)
+
+Note: Consider using 'bracket' or similar resource management to ensure
+the file is closed even if exceptions occur.
+
 > closeLineMap :: LineMap -> IO ()
 > closeLineMap lm = hClose (lmHandle lm)
 
@@ -108,6 +149,38 @@ count total lines. This is acceptable because:
 1. Negative indexing is rare (mostly "jump to end")
 2. The scan result could be cached if needed
 3. Alternative would require backward index building (complex)
+
+getLines :: LineMap -> Integer -> Int -> IO [Text]
+---------
+Read a slice of lines from the file.
+
+Parameters:
+  lm :: LineMap
+    - The LineMap handle from 'openLineMap'
+    - Index builds lazily as needed when accessing new regions
+  
+  start :: Integer
+    - Zero-based line number to start reading from
+    - Positive: line offset from beginning (0 = first line)
+    - Negative: line offset from end (-1 = last line, -2 = second-to-last)
+    - Out-of-bounds values return empty list
+  
+  count :: Int
+    - Maximum number of lines to return
+    - If fewer lines available, returns what's available
+    - Use 0 to return empty list
+
+Returns:
+  List of Text lines (without trailing newlines)
+  - Lines have CR characters stripped (handles Windows line endings)
+  - UTF-8 decoded leniently (invalid sequences replaced, not errors)
+  - Empty list if start is beyond EOF or count is 0
+
+Examples:
+  getLines lm 0 10      -- First 10 lines
+  getLines lm 100 5     -- Lines 100-104
+  getLines lm (-5) 5    -- Last 5 lines
+  getLines lm (-1) 1    -- Last line only
 
 > getLines :: LineMap -> Integer -> Int -> IO [T.Text]
 > getLines lm start count = do
