@@ -180,6 +180,108 @@ spec = describe "HaFileViewer.LineMap" $ do
       fromEnd500 `shouldBe` map (\n -> T.pack $ "N" ++ show n) [2001..2005::Int]
       closeLineMap lm
 
+  -- Future: Forward access when backward table exists (for bidirectional index)
+  it "forward access when backward table would overlap" $
+    withSystemTempDirectory "hfvt" $ \dir -> do
+      let fp = dir </> "fwd_back_overlap.txt"
+          -- Create 3000 lines
+          contents = T.intercalate "\n" (map (\n -> "R" <> T.pack (show n)) [1..3000::Int])
+      TIO.writeFile fp contents
+      lm <- openLineMap fp indexStepDefault
+      -- Simulate: access from end first (would build backward table)
+      end <- getLines lm (-50) 10
+      end `shouldBe` map (\n -> T.pack $ "R" ++ show n) [2951..2960::Int]
+      -- Now access from middle-to-end range (overlaps with backward)
+      -- Should use forward scan, not be confused by backward table
+      midToEnd <- getLines lm 2900 50
+      midToEnd `shouldBe` map (\n -> T.pack $ "R" ++ show n) [2901..2950::Int]
+      -- Access near end again
+      nearEnd <- getLines lm 2980 10
+      nearEnd `shouldBe` map (\n -> T.pack $ "R" ++ show n) [2981..2990::Int]
+      closeLineMap lm
+
+  it "forward access in range not covered by backward table" $
+    withSystemTempDirectory "hfvt" $ \dir -> do
+      let fp = dir </> "fwd_no_back.txt"
+          -- Create 4000 lines spanning multiple index steps
+          contents = T.intercalate "\n" (map (\n -> "D" <> T.pack (show n)) [1..4000::Int])
+      TIO.writeFile fp contents
+      lm <- openLineMap fp indexStepDefault
+      -- Access last 100 lines (would build backward table in that region)
+      lastHundred <- getLines lm (-100) 50
+      lastHundred `shouldBe` map (\n -> T.pack $ "D" ++ show n) [3901..3950::Int]
+      -- Now access beginning/middle (outside backward table coverage)
+      -- Should use forward table, unaffected by backward
+      beginning <- getLines lm 0 10
+      beginning `shouldBe` map (\n -> T.pack $ "D" ++ show n) [1..10::Int]
+      middle <- getLines lm 2000 20
+      middle `shouldBe` map (\n -> T.pack $ "D" ++ show n) [2001..2020::Int]
+      -- Access in gap between forward and backward
+      gap <- getLines lm 3500 10
+      gap `shouldBe` map (\n -> T.pack $ "D" ++ show n) [3501..3510::Int]
+      closeLineMap lm
+
+  it "forward scan through potential convergence point" $
+    withSystemTempDirectory "hfvt" $ \dir -> do
+      let fp = dir </> "convergence_point.txt"
+          -- Create 2048 lines (exactly 2 * indexStepDefault)
+          contents = T.intercalate "\n" (map (\n -> "C" <> T.pack (show n)) [1..2048::Int])
+      TIO.writeFile fp contents
+      lm <- openLineMap fp indexStepDefault
+      -- Build forward up to line 1024
+      fwd1 <- getLines lm 1000 10
+      fwd1 `shouldBe` map (\n -> T.pack $ "C" ++ show n) [1001..1010::Int]
+      -- Access from end (would build backward to ~line 1024)
+      back1 <- getLines lm (-1024) 10
+      back1 `shouldBe` map (\n -> T.pack $ "C" ++ show n) [1025..1034::Int]
+      -- Access exactly at convergence point (line 1024)
+      -- Should work correctly whether using forward or backward table
+      atConvergence <- getLines lm 1024 1
+      atConvergence `shouldBe` [T.pack "C1025"]
+      -- Scan across convergence point
+      acrossConvergence <- getLines lm 1020 10
+      acrossConvergence `shouldBe` map (\n -> T.pack $ "C" ++ show n) [1021..1030::Int]
+      closeLineMap lm
+
+  -- Forward access tests (for future backward index validation)
+  it "forward access with simulated backward table overlap" $
+    withSystemTempDirectory "hfvt" $ \dir -> do
+      let fp = dir </> "fwdbackoverlap.txt"
+          -- 4000 lines to span multiple index steps
+          contents = T.intercalate "\n" (map (\n -> "R" <> T.pack (show n)) [1..4000::Int])
+      TIO.writeFile fp contents
+      lm <- openLineMap fp indexStepDefault
+      -- Simulate backward table: access from end first
+      backAccess <- getLines lm (-100) 50
+      length backAccess `shouldBe` 50
+      -- Now forward access in middle (would overlap if backward index exists)
+      midAccess <- getLines lm 2000 10
+      midAccess `shouldBe` map (\n -> T.pack $ "R" ++ show n) [2001..2010::Int]
+      -- Forward access near start (no overlap with backward)
+      startAccess <- getLines lm 100 5
+      startAccess `shouldBe` map (\n -> T.pack $ "R" ++ show n) [101..105::Int]
+      closeLineMap lm
+
+  it "forward access when backward table exists but no overlap" $
+    withSystemTempDirectory "hfvt" $ \dir -> do
+      let fp = dir </> "fwdbackseparate.txt"
+          -- 5000 lines
+          contents = T.intercalate "\n" (map (\n -> "S" <> T.pack (show n)) [1..5000::Int])
+      TIO.writeFile fp contents
+      lm <- openLineMap fp indexStepDefault
+      -- Build backward table by accessing end
+      end1 <- getLines lm (-50) 25
+      length end1 `shouldBe` 25
+      end2 <- getLines lm (-500) 50
+      length end2 `shouldBe` 50
+      -- Forward access at start (no overlap - tests isolation)
+      start <- getLines lm 0 10
+      start `shouldBe` map (\n -> T.pack $ "S" ++ show n) [1..10::Int]
+      -- Forward access in early middle (still no overlap)
+      earlyMid <- getLines lm 1000 5
+      earlyMid `shouldBe` map (\n -> T.pack $ "S" ++ show n) [1001..1005::Int]
+      closeLineMap lm
+
   -- Convergence scenario tests (forward + backward access patterns)
   it "convergence: forward then backward access" $
     withSystemTempDirectory "hfvt" $ \dir -> do
