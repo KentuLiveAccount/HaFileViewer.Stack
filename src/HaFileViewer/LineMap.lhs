@@ -28,6 +28,22 @@ When accessing line N:
 This approach balances memory usage with access speed for typical file viewer
 navigation patterns (sequential browsing, jumping, searching).
 
+Line Ending Support
+-------------------
+
+The implementation handles the most common line ending conventions:
+
+- **Unix/Linux (LF)**: `0x0A` - Fully supported (primary delimiter)
+- **Windows (CRLF)**: `0x0D 0x0A` - Fully supported (CR stripped after split)
+- **Classic Mac (CR only)**: `0x0D` - NOT supported (rare, pre-OSX format)
+
+Files are split on LF byte (`0x0A`), then trailing CR bytes are removed from
+each line via `normalizeLine`. This handles both Unix and Windows files correctly.
+
+Classic Mac CR-only files (pre-OSX) would appear as a single long line. Adding
+support would require more complex splitting logic and CRLF boundary handling.
+This is considered acceptable as CR-only files are extremely rare in modern use.
+
 Module Header
 -------------
 
@@ -50,6 +66,14 @@ Module Header
 > import Data.IORef
 > import Control.Exception
 > import Control.Monad (when)
+
+Constants
+---------
+
+Byte value for line feed (newline) character.
+
+> lfByte :: Word8
+> lfByte = 10
 
 Core Data Types
 ---------------
@@ -213,23 +237,21 @@ a trailing newline still has its last line counted.
 >   sz <- hFileSize h
 >   if sz == 0
 >     then return 0  -- Empty file has 0 lines
->     else do
->       nlCount <- finally (go h 0) (hClose h)
->       -- Check if file ends with newline
->       h2 <- openBinaryFile (lmPath lm) ReadMode
->       hSeek h2 SeekFromEnd (-1)
->       lastByte <- BS.hGet h2 1
->       hClose h2
+>     else finally (do
+>       nlCount <- go h 0
+>       -- Check if file ends with newline by seeking to last byte
+>       hSeek h SeekFromEnd (-1)
+>       lastByte <- BS.hGet h 1
 >       -- If last byte is not LF, add 1 for the final line
->       let endsWithNL = not (BS.null lastByte) && BS.head lastByte == 10
+>       let endsWithNL = not (BS.null lastByte) && BS.head lastByte == lfByte
 >           lineCount = if endsWithNL then nlCount else nlCount + 1
->       return lineCount
+>       return lineCount) (hClose h)
 >   where
 >     go h acc = do
 >       bs <- BS.hGet h 65536
 >       if BS.null bs then return acc
 >       else do
->         let n = fromIntegral $ BS.count 10 bs -- count LF
+>         let n = fromIntegral $ BS.count lfByte bs -- count LF
 >         go h (acc + n)
 
 Index Lookup and Building
@@ -338,7 +360,7 @@ that line starts. This is a simple byte-by-byte scan counting newlines.
 >       findOff off _ [] = return off
 >       findOff off line (b:bs)
 >         | line >= targetLine = return off
->         | b == 10 = findOff (off + 1) (line + 1) bs
+>         | b == lfByte = findOff (off + 1) (line + 1) bs
 >         | otherwise = findOff (off + 1) line bs
 >   findOff baseOffset baseLine bytes
 
@@ -368,20 +390,17 @@ and carry partial fragments to next chunk if needed.
 >                   acc' = if includePartial then acc ++ [decodeUtf8Lenient partial] else acc
 >               return acc'
 >             else do
->               let pieces = BS.split 10 bs -- split on LF
->                   chunkEnded = (not (BS.null bs)) && (BS.last bs == 10)
+>               let pieces = BS.split lfByte bs -- split on LF
+>                   chunkEnded = (not (BS.null bs)) && (BS.last bs == lfByte)
 >               -- build list of complete pieces, and carry a new partial if chunk didn't end with NL
 >               let (textsBS, newPartial) = case pieces of
 >                     [] -> ([], partial)
 >                     [only] -> if chunkEnded
->                                 then ([if BS.null partial then only else BS.concat [partial, only]], BS.empty)
->                                 else ([], if BS.null partial then only else BS.concat [partial, only])
+>                                 then ([BS.append partial only], BS.empty)
+>                                 else ([], BS.append partial only)
 >                     (p:ps) -> if chunkEnded
->                                 then ( (if BS.null partial then p else BS.concat [partial,p]) : ps , BS.empty)
->                                 else let mid = init ps
->                                          lastp = last ps
->                                          headCombined = if BS.null partial then p else BS.concat [partial,p]
->                                      in ( headCombined : mid, lastp )
+>                                 then ((BS.append partial p) : ps, BS.empty)
+>                                 else ((BS.append partial p) : init ps, last ps)
 >                   texts = map decodeUtf8Lenient textsBS
 >                   numNew = length texts
 >               -- collect requested slice
