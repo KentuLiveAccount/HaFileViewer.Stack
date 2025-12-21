@@ -61,11 +61,11 @@ Module Header
 > import qualified Data.Text as T
 > import qualified Data.Text.Encoding as TE
 > import qualified Data.Text.Encoding.Error as TEE
-> import System.IO
+> import System.IO.MMap (mmapFileByteString)
 > import Data.Word
 > import Data.IORef
-> import Control.Exception
 > import Control.Monad (when)
+> import Data.Int (Int64)
 
 Constants
 ---------
@@ -88,7 +88,7 @@ LineMap is intentionally kept opaque to the user of the module.
 >
 > data LineMap = LineMap
 >   { lmPath      :: FilePath
->   , lmHandle    :: Handle
+>   , lmMapped    :: BS.ByteString  -- memory-mapped file content
 >   , lmIndexStep :: Int
 >   , lmForward   :: IORef (VS.Vector Word64) -- byte offsets at lines 0, K, 2K, ...
 >   , lmIndexed   :: IORef Integer -- how many lines have been scanned from start
@@ -141,10 +141,10 @@ Returns:
 
 > openLineMap :: FilePath -> Int -> IO LineMap
 > openLineMap path k = do
->   h <- openBinaryFile path ReadMode
+>   bs <- mmapFileByteString path Nothing  -- map entire file
 >   fref <- newIORef (VS.singleton 0) -- offset 0 at line 0
 >   iref <- newIORef 0
->   return $ LineMap path h k fref iref
+>   return $ LineMap path bs k fref iref
 
 closeLineMap :: LineMap -> IO ()
 -------------
@@ -160,7 +160,7 @@ Note: Consider using 'bracket' or similar resource management to ensure
 the file is closed even if exceptions occur.
 
 > closeLineMap :: LineMap -> IO ()
-> closeLineMap lm = hClose (lmHandle lm)
+> closeLineMap lm = return ()  -- mmap cleanup handled automatically by GC
 
 Line Access with Negative Indexing
 -----------------------------------
@@ -225,34 +225,24 @@ Examples:
 Helper: Count Total Lines
 --------------------------
 
-Scan file counting lines. A line is text terminated by LF or EOF.
-Opens a separate handle to avoid interfering with the main handle's position.
+Scan file counting lines using memory-mapped content.
+A line is text terminated by LF or EOF.
 
 Note: This counts actual lines, not just newlines. A file ending without
 a trailing newline still has its last line counted.
 
 > countTotalLines :: LineMap -> IO Integer
 > countTotalLines lm = do
->   h <- openBinaryFile (lmPath lm) ReadMode
->   sz <- hFileSize h
+>   let bs = lmMapped lm
+>       sz = BS.length bs
 >   if sz == 0
 >     then return 0  -- Empty file has 0 lines
->     else finally (do
->       nlCount <- go h 0
->       -- Check if file ends with newline by seeking to last byte
->       hSeek h SeekFromEnd (-1)
->       lastByte <- BS.hGet h 1
->       -- If last byte is not LF, add 1 for the final line
->       let endsWithNL = not (BS.null lastByte) && BS.head lastByte == lfByte
+>     else do
+>       let nlCount = fromIntegral $ BS.count lfByte bs
+>           lastByte = BS.last bs
+>           endsWithNL = lastByte == lfByte
 >           lineCount = if endsWithNL then nlCount else nlCount + 1
->       return lineCount) (hClose h)
->   where
->     go h acc = do
->       bs <- BS.hGet h 65536
->       if BS.null bs then return acc
->       else do
->         let n = fromIntegral $ BS.count lfByte bs -- count LF
->         go h (acc + n)
+>       return lineCount
 
 Index Lookup and Building
 --------------------------
@@ -291,8 +281,9 @@ encountered during scans.
 Index Building Strategy
 -----------------------
 
-When scanning forward, we read in chunks and count newlines. Whenever we cross
-a K-line boundary, we precisely locate that boundary's byte offset and cache it.
+When scanning forward, we read chunks from the mapped file and count newlines.
+Whenever we cross a K-line boundary, we precisely locate that boundary's byte
+offset and cache it.
 
 This "scan and record crossings" approach ensures:
 - Index remains accurate (exact byte offsets)
@@ -301,26 +292,29 @@ This "scan and record crossings" approach ensures:
 
 > scanAndBuildIndex :: LineMap -> Offset -> Integer -> Integer -> IO Offset
 > scanAndBuildIndex lm startOffset startLine targetLine = do
->   hSeek (lmHandle lm) AbsoluteSeek startOffset
->   let k = fromIntegral (lmIndexStep lm)
+>   let bs = lmMapped lm
+>       fileSize = fromIntegral $ BS.length bs
+>       k = fromIntegral (lmIndexStep lm)
 >       buf = 65536
 >       loop offset curLine = do
 >         if curLine >= targetLine
 >           then return offset
 >           else do
->             bs <- BS.hGet (lmHandle lm) buf
->             if BS.null bs
+>             let remaining = fileSize - offset
+>             if remaining <= 0
 >               then return offset
 >               else do
->                 let newlines = fromIntegral $ BS.count 10 bs
->                     newOffset = offset + fromIntegral (BS.length bs)
+>                 let chunkSize = min buf remaining
+>                     chunk = BS.take (fromIntegral chunkSize) $ BS.drop (fromIntegral offset) bs
+>                     newlines = fromIntegral $ BS.count lfByte chunk
+>                     newOffset = offset + fromIntegral (BS.length chunk)
 >                 -- Check if we crossed any index boundaries and record them
 >                 let oldIdx = curLine `div` k
 >                     newLine = curLine + newlines
 >                     newIdx = newLine `div` k
 >                 when (newIdx > oldIdx) $ do
 >                   -- We crossed index boundaries, need to find exact offsets
->                   recordIndexCrossings lm offset curLine bs k (oldIdx + 1) newIdx
+>                   recordIndexCrossings lm offset curLine chunk k (oldIdx + 1) newIdx
 >                 loop newOffset newLine
 >   loop startOffset startLine
 
@@ -378,20 +372,23 @@ and carry partial fragments to next chunk if needed.
 
 > scanLinesFromOffset :: LineMap -> Offset -> Integer -> Integer -> Int -> IO [T.Text]
 > scanLinesFromOffset lm off baseLine startLine count = do
->   let h = lmHandle lm
->   hSeek h AbsoluteSeek off
->   let go curLine acc remaining partial = do
+>   let mapped = lmMapped lm
+>       fileSize = fromIntegral $ BS.length mapped
+>       chunkSize = 65536
+>       go curLine acc remaining partial offset = do
 >         if remaining <= 0 then return acc
 >         else do
->           bs <- BS.hGet h 65536
->           if BS.null bs
+>           let bytesRemaining = fileSize - offset
+>           if bytesRemaining <= 0
 >             then do -- EOF: include partial only if it falls within requested window
 >               let includePartial = (not (BS.null partial)) && (curLine >= startLine) && (remaining > 0)
 >                   acc' = if includePartial then acc ++ [decodeUtf8Lenient partial] else acc
 >               return acc'
 >             else do
->               let pieces = BS.split lfByte bs -- split on LF
->                   chunkEnded = (not (BS.null bs)) && (BS.last bs == lfByte)
+>               let readSize = min chunkSize bytesRemaining
+>                   chunk = BS.take (fromIntegral readSize) $ BS.drop (fromIntegral offset) mapped
+>                   pieces = BS.split lfByte chunk -- split on LF
+>                   chunkEnded = (not (BS.null chunk)) && (BS.last chunk == lfByte)
 >               -- build list of complete pieces, and carry a new partial if chunk didn't end with NL
 >               let (textsBS, newPartial) = case pieces of
 >                     [] -> ([], partial)
@@ -413,8 +410,9 @@ and carry partial fragments to next chunk if needed.
 >                 else do
 >                   let newCur = curLine + fromIntegral numNew
 >                       newRemaining = remaining - length toTake
->                   go newCur acc' newRemaining newPartial
->   go baseLine [] count BS.empty
+>                       newOffset = offset + fromIntegral readSize
+>                   go newCur acc' newRemaining newPartial newOffset
+>   go baseLine [] count BS.empty off
 
 Text Processing Utilities
 --------------------------
