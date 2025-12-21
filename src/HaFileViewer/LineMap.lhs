@@ -95,8 +95,9 @@ LineMap is intentionally kept opaque to the user of the module.
 >   , lmIndexStep   :: Int
 >   , lmForward     :: IORef (VS.Vector Word64) -- byte offsets at lines 0, K, 2K, ...
 >   , lmIndexed     :: IORef Integer -- how many lines have been scanned from start
->   , lmBackward    :: IORef (VS.Vector Word64) -- byte offsets from end (EOF-K, EOF-2K, ...)
+>   , lmBackward    :: IORef (VS.Vector Word64) -- EOF-relative offsets (fileSize - offset)
 >   , lmBackIndexed :: IORef Integer -- how many lines have been scanned from end
+>   , lmReachedStart :: IORef Bool -- whether backward scan reached file start (offset 0)
 >   , lmTotalLines  :: IORef (Maybe Integer) -- cached total line count (Nothing until computed)
 >   }
 
@@ -176,8 +177,9 @@ Returns:
 >   iref <- newIORef 0
 >   bref <- newIORef VS.empty -- backward index starts empty
 >   biref <- newIORef 0
+>   reachedStartRef <- newIORef False -- haven't scanned backward yet
 >   totalRef <- newIORef Nothing -- total lines not yet computed
->   return $ LineMap path fileSize windowSizeDefault winRef k fref iref bref biref totalRef
+>   return $ LineMap path fileSize windowSizeDefault winRef k fref iref bref biref reachedStartRef totalRef
 
 closeLineMap :: LineMap -> IO ()
 -------------
@@ -250,19 +252,40 @@ Examples:
 >       case cachedTotal of
 >         Just total -> return (max 0 (total + start))
 >         Nothing -> do
->           -- Use backward index to avoid full file scan
->           -- For negative indexing without cached total, we need to scan
->           -- all the way to file start to know the total
+>           -- Use backward index - scan only what we need from EOF
 >           let linesFromEnd = abs start
 >               k = fromIntegral (lmIndexStep lm)
->               -- Scan all the way to beginning
->               targetLinesFromEnd = lmFileSize lm  -- Scan entire file
+>               -- Scan enough to cover requested lines
+>               targetLinesFromEnd = linesFromEnd + fromIntegral count + k
 >           scanBackwardAndBuildIndex lm targetLinesFromEnd
->           -- Get total from backward index
+>           -- Check if we scanned all the way to the beginning (offset 0)
 >           backIndexed <- readIORef (lmBackIndexed lm)
->           -- Cache it
->           writeIORef (lmTotalLines lm) (Just backIndexed)
->           return (max 0 (backIndexed + start))
+>           reachedStart <- readIORef (lmReachedStart lm)
+>           
+>           if reachedStart
+>             then do
+>               -- Scanned all the way to beginning, backIndexed IS the total
+>               writeIORef (lmTotalLines lm) (Just backIndexed)
+>               return (max 0 (backIndexed + start))
+>             else do
+>               -- Didn't reach beginning, need to count from start
+>               back <- readIORef (lmBackward lm)
+>               if VS.null back
+>                 then do
+>                   -- No backward index built, fall back to full count
+>                   total <- countTotalLines lm
+>                   writeIORef (lmTotalLines lm) (Just total)
+>                   return (max 0 (total + start))
+>                 else do
+>                   -- Get the furthest back we've indexed (largest offset from start)
+>                   let lastEofRel = fromIntegral (VS.last back)
+>                       lastAbsolute = lmFileSize lm - lastEofRel
+>                   -- Count lines from start to that offset
+>                   linesFromStart <- countLinesUpTo lm lastAbsolute
+>                   -- Total = lines from start + lines indexed from end + 1 for the boundary line
+>                   let total = linesFromStart + backIndexed + 1
+>                   writeIORef (lmTotalLines lm) (Just total)
+>                   return (max 0 (total + start))
 >   -- find nearest indexed line <= startPos
 >   let k = fromIntegral (lmIndexStep lm)
 >   let baseLine = (startPos `div` k) * k
@@ -285,6 +308,32 @@ Returns cached total line count, or computes and caches it if not available.
 >       total <- countTotalLines lm
 >       writeIORef (lmTotalLines lm) (Just total)
 >       return total
+
+Helper: Count Lines Up To Offset
+---------------------------------
+
+Count how many complete lines exist from start of file up to (but not including)
+the given offset. Used to convert backward index positions to absolute line numbers.
+
+This counts newlines from start up to the offset - the resulting count represents
+which line number starts at that offset.
+
+> countLinesUpTo :: LineMap -> Offset -> IO Integer
+> countLinesUpTo lm targetOffset = do
+>   if targetOffset == 0
+>     then return 0  -- Offset 0 is line 0
+>     else do
+>       let chunkSize = 65536
+>           loop offset lineCount = do
+>             if offset >= targetOffset
+>               then return lineCount
+>               else do
+>                 let remaining = targetOffset - offset
+>                     readSize = min chunkSize remaining
+>                 chunk <- readAtOffset lm offset readSize
+>                 let newlines = fromIntegral $ BS.count lfByte chunk
+>                 loop (offset + fromIntegral readSize) (lineCount + newlines)
+>       loop 0 0
 
 Helper: Windowed Memory Mapping
 -------------------------------
@@ -416,7 +465,10 @@ of lines from the end and returns the offset. Builds backward index on demand.
 >         lastIdx = VS.length back - 1
 >     
 >     if targetIdx <= lastIdx
->       then return $ fromIntegral (back VS.! targetIdx)
+>       then do
+>         -- Convert EOF-relative offset back to absolute
+>         let eofRelative = fromIntegral (back VS.! targetIdx)
+>         return $ fileSize - eofRelative
 >       else do
 >         -- Need to scan backward to build up to targetIdx
 >         let targetLines = (fromIntegral targetIdx + 1) * fromIntegral k
@@ -425,7 +477,9 @@ of lines from the end and returns the offset. Builds backward index on demand.
 >         back' <- readIORef (lmBackward lm)
 >         let lastIdx' = VS.length back' - 1
 >         if targetIdx <= lastIdx'
->           then return $ fromIntegral (back' VS.! targetIdx)
+>           then do
+>             let eofRelative = fromIntegral (back' VS.! targetIdx)
+>             return $ fileSize - eofRelative
 >           else return 0  -- Return start of file if we've scanned everything
 
 Index Building Strategy
@@ -514,9 +568,14 @@ When negative indexing is used, we build a backward index from the end of the
 file. This scans backwards counting newlines and caching offsets at K-line
 intervals from the end.
 
-The backward index stores absolute byte offsets (not EOF-relative), just like
-the forward index. The vector is built in reverse order: first entry is the
-offset of the line that's K lines from EOF, second entry is 2K from EOF, etc.
+The backward index stores EOF-RELATIVE byte offsets (fileSize - absoluteOffset).
+This enables accessing file end without knowing total line count - critical for
+tail-like operations on gigabyte files.
+
+The vector is organized by "lines from EOF": backVec[0] is the EOF-relative
+offset of the line K lines from end, backVec[1] is 2K from end, etc.
+
+To convert back to absolute: absoluteOffset = fileSize - eofRelativeOffset
 
 > scanBackwardAndBuildIndex :: LineMap -> Integer -> IO ()
 > scanBackwardAndBuildIndex lm targetLinesFromEnd = do
@@ -527,7 +586,7 @@ offset of the line that's K lines from EOF, second entry is 2K from EOF, etc.
 >       -- Scan backwards from EOF, recording K-line boundaries
 >       loop offset linesFromEnd indexEntries = do
 >         if linesFromEnd >= targetLinesFromEnd || offset <= 0
->           then return (linesFromEnd, indexEntries)
+>           then return (linesFromEnd, indexEntries, offset <= 0)
 >           else do
 >             let chunkStart = max 0 (offset - buf)
 >                 chunkSize = offset - chunkStart
@@ -558,12 +617,14 @@ offset of the line that's K lines from EOF, second entry is 2K from EOF, etc.
 >           endsWithNL = lastByte == lfByte
 >       return $ if endsWithNL then 0 else 1
 >   
->   (finalLinesFromEnd, indexEntries) <- loop startOffset initialLines []
+>   (finalLinesFromEnd, indexEntries, reachedStart) <- loop startOffset initialLines []
 >   
 >   -- Store entries in backward index (reverse order for efficient lookup)
 >   let backVec = VS.fromList (reverse indexEntries)
 >   writeIORef (lmBackward lm) backVec
 >   writeIORef (lmBackIndexed lm) finalLinesFromEnd
+>   -- Store whether we scanned all the way to file start
+>   writeIORef (lmReachedStart lm) reachedStart
 
 Recording Backward Index Crossings
 -----------------------------------
@@ -577,8 +638,11 @@ Similar to forward index crossing, but scanning backwards through the chunk.
 >     then return acc
 >     else do
 >       let targetLinesFromEnd = fromIdx * k
+>           fileSize = lmFileSize lm
 >       offset <- findLineOffsetBackward baseOffset baseLinesFromEnd chunk targetLinesFromEnd
->       let newAcc = fromIntegral offset : acc
+>       -- Store as EOF-relative offset
+>       let eofRelativeOffset = fileSize - offset
+>           newAcc = fromIntegral eofRelativeOffset : acc
 >       recordBackwardIndexCrossings lm baseOffset baseLinesFromEnd chunk k (fromIdx + 1) toIdx newAcc
 
 Finding Line Offset Scanning Backwards
