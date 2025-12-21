@@ -676,60 +676,81 @@ Current limitations and potential improvements:
 
 1. **Bidirectional Index for Negative Indexing Optimization** (PRIORITY)
    
-   Current Issue:
-   - Negative indexing (e.g., getLines lm (-5) 5 for last 5 lines) requires
-     full file scan to count total lines
-   - This defeats the purpose of sparse indexing for end-of-file access
+   Current Status:
+   - IMPLEMENTED: Backward index infrastructure complete
+   - Currently scans entire file backward on first negative access
+   - Opportunity: Optimize to scan only needed region for tail access
    
-   Proposed Solution:
-   - Maintain two separate sparse indexes:
-     * lmForward: offsets from start (0, K, 2K, ...) [EXISTING]
-     * lmBackward: offsets from end (EOF, EOF-K, EOF-2K, ...)
+   Key Design Decisions:
    
-   - When negative index requested:
-     * Use hFileSize to get file size (O(1) syscall)
-     * Scan backward from EOF building backward index
-     * Convert negative index to absolute once we know line position
+   a) Offset Storage Format:
+      - Both forward and backward indexes store ABSOLUTE byte offsets
+      - This makes convergence detection and merging trivial
+      - Alternative (EOF-relative) would complicate arithmetic
+      - Trade-off: Absolute offsets simplify everything at no cost
    
-   - Keep indexes separate until they overlap:
-     * Track coverage: forwardCoverage and backwardCoverage (line ranges)
-     * When ranges meet, merge into single unified index
-     * After merge, all access becomes O(1) lookup
+   b) Backward Index Organization:
+      - Vector indexed by "lines from EOF" / K
+      - backVec[0] = offset of line at (total - K)
+      - backVec[1] = offset of line at (total - 2K)
+      - Allows direct lookup without knowing total line count
    
-   Implementation Strategy:
-   
-   a) Data Structure Changes:
+   c) Convergence Detection (SIMPLE):
       ```
-      data LineMap = LineMap
-        { ...
-        , lmBackward  :: IORef (VS.Vector Word64)  -- NEW: EOF-relative offsets
-        , lmBackLines :: IORef Integer              -- NEW: lines counted from end
-        , lmMerged    :: IORef Bool                 -- NEW: indexes merged flag
-        }
+      fwdMax = last element of lmForward
+      backMin = first element of lmBackward
+      
+      if fwdMax >= backMin then
+        -- Indexes have met or crossed
+        -- Total lines now known: forwardLines + backwardLines
+        -- Ready for merge
       ```
+      
+   d) Index Merging Algorithm:
+      When convergence detected:
+      1. Compute total = lmIndexed + lmBackIndexed
+      2. Convert backward offsets to line numbers:
+         backLine[i] = total - ((i+1) * K)
+      3. Merge vectors: interleave forward and backward entries
+      4. Result: complete index covering entire file
+      5. Cache total, clear backward index, set merged flag
+      
+   e) Why Merge Instead of Keep Separate:
+      CRITICAL ADVANTAGE: Merged index maximizes utility of scanned data
+      
+      Without merge:
+      - Forward index [0, K, 2K, 3K] only helps forward access
+      - Backward index [EOF-K, EOF-2K] only helps backward access
+      - Middle of file still requires scanning
+      
+      With merge:
+      - Combined index [0, K, 2K, ..., 7K, 8K, 9K, EOF] 
+      - ANY access anywhere in file is O(1) lookup
+      - All prior scanning work becomes universally useful
+      - File is "fully indexed" after convergence
    
-   b) Backward Scanning Algorithm:
-      - Start at EOF, read chunks in reverse
-      - Count newlines to find K-line boundaries
-      - Store absolute byte offsets (not EOF-relative)
-      - Challenge: Must handle partial lines at chunk boundaries in reverse
+   f) Lazy Backward Building Optimization:
+      Current: First negative access scans entire file backward
+      Better: Scan only what's needed, build lazily
+      
+      Example: getLines lm (-5) 5
+      - Only scan backward ~(5 + K) lines from EOF
+      - Don't scan entire file
+      - Build more backward index on subsequent accesses
+      - Eventually converge naturally through access pattern
    
-   c) Convergence Detection:
-      - Forward reaches line M: forwardCoverage = [0, M]
-      - Backward reaches line N from end: backwardCoverage = [N, total]
-      - Converged when M >= N or when they overlap
-      - Merge by sorting all cached offsets
-   
-   d) Benefits:
+   g) Benefits:
       - EOF access becomes O(1) after first backward scan to target
       - "Jump to end" pattern is fast (common in log viewing)
-      - Eventually converges to full index without upfront cost
-      - Memory cost is same as unidirectional approach
+      - Convergence creates complete index without upfront cost
+      - Memory cost same as unidirectional (no duplication)
+      - Works optimally for both small and gigabyte files
    
-   e) Edge Cases:
+   h) Edge Cases:
       - Empty file: both indexes empty, converged immediately
       - Small file (< 2K lines): indexes meet on first access
-      - Very large file: indexes may never converge (acceptable)
+      - Very large file: may never converge (acceptable, indexes coexist)
+      - Repeated negative access: cached total makes subsequent O(1)
 
 2. **Index Persistence**: Index rebuilds on each file open
    - Could save/load index to sidecar file for instant reopening
