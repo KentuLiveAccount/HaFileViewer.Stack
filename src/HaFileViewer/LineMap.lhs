@@ -257,28 +257,40 @@ offset is outside the current window, remaps a new window centered around it.
 
 The window is sized to minimize remapping while keeping memory bounded.
 
-> ensureMapped :: LineMap -> Offset -> Integer -> IO BS.ByteString
+> ensureMapped :: LineMap -> Offset -> Integer -> IO ()
 > ensureMapped lm offset size = do
 >   (winStart, winData) <- readIORef (lmWindow lm)
 >   let winEnd = winStart + fromIntegral (BS.length winData)
 >       needsRemap = offset < winStart || offset + size > winEnd
 >   
->   if needsRemap
->     then do
->       -- Center the new window around the requested offset
->       let halfWin = lmWindowSize lm `div` 2
->           newStart = max 0 (offset - halfWin)
->           maxSize = lmFileSize lm - newStart
->           newSize = min (lmWindowSize lm) maxSize
->           mapSpec = if newSize > 0 
->                     then Just (fromIntegral newStart, fromIntegral newSize)
->                     else Nothing
->       newData <- if newSize > 0
->                  then mmapFileByteString (lmPath lm) mapSpec
->                  else return BS.empty
->       writeIORef (lmWindow lm) (newStart, newData)
->       return newData
->     else return winData
+>   when needsRemap $ do
+>     -- Center the new window around the requested offset
+>     let halfWin = lmWindowSize lm `div` 2
+>         newStart = max 0 (offset - halfWin)
+>         maxSize = lmFileSize lm - newStart
+>         newSize = min (lmWindowSize lm) maxSize
+>         mapSpec = if newSize > 0 
+>                   then Just (fromIntegral newStart, fromIntegral newSize)
+>                   else Nothing
+>     newData <- if newSize > 0
+>                then mmapFileByteString (lmPath lm) mapSpec
+>                else return BS.empty
+>     writeIORef (lmWindow lm) (newStart, newData)
+
+Helper: Read from Absolute Offset
+----------------------------------
+
+Read bytes from the file at an absolute offset, automatically handling
+window mapping. This abstracts the details of translating absolute file
+offsets to window-relative offsets.
+
+> readAtOffset :: LineMap -> Offset -> Integer -> IO BS.ByteString
+> readAtOffset lm offset size = do
+>   ensureMapped lm offset size
+>   (winStart, winData) <- readIORef (lmWindow lm)
+>   let relOffset = offset - winStart
+>       chunk = BS.take (fromIntegral size) $ BS.drop (fromIntegral relOffset) winData
+>   return chunk
 
 Helper: Count Total Lines
 --------------------------
@@ -305,17 +317,13 @@ For large files, this scans in windows to avoid mapping the entire file.
 >               else do
 >                 let remaining = fileSize - offset
 >                     chunkSize = min winSize remaining
->                 _ <- ensureMapped lm offset chunkSize
->                 (winStart, winData) <- readIORef (lmWindow lm)
->                 let relOffset = offset - winStart
->                     chunk = BS.take (fromIntegral chunkSize) $ BS.drop (fromIntegral relOffset) winData
->                     count = fromIntegral $ BS.count lfByte chunk
+>                 chunk <- readAtOffset lm offset chunkSize
+>                 let count = fromIntegral $ BS.count lfByte chunk
 >                 loop (offset + chunkSize) (nlCount + count)
 >       nlCount <- loop 0 0
 >       -- Check if file ends with newline
->       _ <- ensureMapped lm (fileSize - 1) 1
->       (winStart, winData) <- readIORef (lmWindow lm)
->       let lastByte = BS.index winData (fromIntegral (fileSize - 1 - winStart))
+>       lastByteChunk <- readAtOffset lm (fileSize - 1) 1
+>       let lastByte = BS.head lastByteChunk
 >           endsWithNL = lastByte == lfByte
 >           lineCount = if endsWithNL then nlCount else nlCount + 1
 >       return lineCount
@@ -380,11 +388,8 @@ This "scan and record crossings" approach ensures:
 >               then return offset
 >               else do
 >                 let chunkSize = min buf remaining
->                 _ <- ensureMapped lm offset chunkSize
->                 (winStart, winData) <- readIORef (lmWindow lm)
->                 let relOffset = offset - winStart
->                     chunk = BS.take (fromIntegral chunkSize) $ BS.drop (fromIntegral relOffset) winData
->                     newlines = fromIntegral $ BS.count lfByte chunk
+>                 chunk <- readAtOffset lm offset chunkSize
+>                 let newlines = fromIntegral $ BS.count lfByte chunk
 >                     newOffset = offset + fromIntegral (BS.length chunk)
 >                 -- Check if we crossed any index boundaries and record them
 >                 let oldIdx = curLine `div` k
@@ -463,11 +468,8 @@ and carry partial fragments to next chunk if needed.
 >               return acc'
 >             else do
 >               let readSize = min chunkSize bytesRemaining
->               _ <- ensureMapped lm offset readSize
->               (winStart, winData) <- readIORef (lmWindow lm)
->               let relOffset = offset - winStart
->                   chunk = BS.take (fromIntegral readSize) $ BS.drop (fromIntegral relOffset) winData
->                   pieces = BS.split lfByte chunk -- split on LF
+>               chunk <- readAtOffset lm offset readSize
+>               let pieces = BS.split lfByte chunk -- split on LF
 >                   chunkEnded = (not (BS.null chunk)) && (BS.last chunk == lfByte)
 >               -- build list of complete pieces, and carry a new partial if chunk didn't end with NL
 >               let (textsBS, newPartial) = case pieces of
