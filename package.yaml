@@ -55,4 +55,5 @@ tests:
       - directory
       - text
       - bytestring
+      - time
 

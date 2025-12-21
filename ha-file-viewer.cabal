@@ -76,4 +76,5 @@ test-suite ha-file-viewer-test
         , hspec
         , temporary
         , text
+        , time
     default-language: Haskell2010

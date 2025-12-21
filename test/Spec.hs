@@ -7,6 +7,7 @@ import System.FilePath ((</>))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import HaFileViewer.LineMap
+import Data.Time.Clock (getCurrentTime, diffUTCTime)
 
 main :: IO ()
 main = hspec spec
@@ -352,4 +353,27 @@ spec = describe "HaFileViewer.LineMap" $ do
       -- Now try negative indexing
       r3 <- getLines lm (-1) 1   -- last line = LINE10000
       r3 `shouldBe` [T.pack "LINE10000"]
+      closeLineMap lm
+
+  it "fast tail access on large file without forward index" $
+    withSystemTempDirectory "hfvt" $ \dir -> do
+      let fp = dir </> "large.txt"
+          -- 20000 lines
+          contents = T.intercalate "\n" (map (\n -> "LINE" <> T.pack (show n)) [1..20000::Int])
+      TIO.writeFile fp contents
+      lm <- openLineMap fp indexStepDefault
+      -- Access ONLY the last line - should be fast (no forward scanning)
+      -- Time this operation
+      putStrLn $ "\n  About to call getLines(-1) 1..."
+      start <- getCurrentTime
+      lastLine <- getLines lm (-1) 1
+      end <- getCurrentTime
+      let elapsed = diffUTCTime end start
+      putStrLn $ "  getLines(-1) 1 on 20K line file took: " ++ show elapsed
+      lastLine `shouldBe` [T.pack "LINE20000"]
+      -- Also try last 5 lines
+      putStrLn $ "\n  About to call getLines(-5) 5..."
+      last5 <- getLines lm (-5) 5
+      putStrLn $ "  Got: " ++ show last5
+      last5 `shouldBe` map (\n -> T.pack $ "LINE" ++ show n) [19996..20000::Int]
       closeLineMap lm
