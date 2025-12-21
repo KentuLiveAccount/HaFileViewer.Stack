@@ -62,6 +62,7 @@ Module Header
 > import qualified Data.Text.Encoding as TE
 > import qualified Data.Text.Encoding.Error as TEE
 > import System.IO.MMap (mmapFileByteString)
+> import System.IO (withFile, IOMode(..), hFileSize)
 > import Data.Word
 > import Data.IORef
 > import Control.Monad (when)
@@ -87,11 +88,13 @@ LineMap is intentionally kept opaque to the user of the module.
 > type Offset = Integer
 >
 > data LineMap = LineMap
->   { lmPath      :: FilePath
->   , lmMapped    :: BS.ByteString  -- memory-mapped file content
->   , lmIndexStep :: Int
->   , lmForward   :: IORef (VS.Vector Word64) -- byte offsets at lines 0, K, 2K, ...
->   , lmIndexed   :: IORef Integer -- how many lines have been scanned from start
+>   { lmPath        :: FilePath
+>   , lmFileSize    :: Integer
+>   , lmWindowSize  :: Integer
+>   , lmWindow      :: IORef (Offset, BS.ByteString)  -- (start offset, mapped data)
+>   , lmIndexStep   :: Int
+>   , lmForward     :: IORef (VS.Vector Word64) -- byte offsets at lines 0, K, 2K, ...
+>   , lmIndexed     :: IORef Integer -- how many lines have been scanned from start
 >   }
 
 The default index step of 1024 provides good balance:
@@ -108,6 +111,22 @@ use more memory but enable faster seeks.
 
 > indexStepDefault :: Int
 > indexStepDefault = 1024
+
+windowSizeDefault :: Integer
+------------------
+Recommended default window size for memory-mapped region.
+
+For gigabyte-scale files, mapping the entire file wastes address space.
+Instead, we map a sliding window and remap as needed when accessing
+different regions.
+
+100MB provides good balance:
+- Large enough to avoid frequent remapping during sequential access
+- Small enough to keep memory usage bounded for huge files
+- Multiple windows can fit in typical RAM for concurrent file access
+
+> windowSizeDefault :: Integer
+> windowSizeDefault = 100 * 1024 * 1024  -- 100 MB
 
 Public API
 ----------
@@ -141,10 +160,18 @@ Returns:
 
 > openLineMap :: FilePath -> Int -> IO LineMap
 > openLineMap path k = do
->   bs <- mmapFileByteString path Nothing  -- map entire file
+>   -- Get file size
+>   fileSize <- withFile path ReadMode (fmap fromIntegral . hFileSize)
+>   -- Map initial window starting at offset 0
+>   let winSize = min windowSizeDefault fileSize
+>       mapSize = if winSize > 0 then Just (0, fromIntegral winSize) else Nothing
+>   initialWindow <- if fileSize > 0
+>                    then mmapFileByteString path mapSize
+>                    else return BS.empty
+>   winRef <- newIORef (0, initialWindow)
 >   fref <- newIORef (VS.singleton 0) -- offset 0 at line 0
 >   iref <- newIORef 0
->   return $ LineMap path bs k fref iref
+>   return $ LineMap path fileSize windowSizeDefault winRef k fref iref
 
 closeLineMap :: LineMap -> IO ()
 -------------
@@ -222,6 +249,37 @@ Examples:
 >   lns <- scanLinesFromOffset lm baseOffset baseLine startPos count
 >   return lns
 
+Helper: Windowed Memory Mapping
+-------------------------------
+
+Ensures that a region of the file is mapped into memory. If the requested
+offset is outside the current window, remaps a new window centered around it.
+
+The window is sized to minimize remapping while keeping memory bounded.
+
+> ensureMapped :: LineMap -> Offset -> Integer -> IO BS.ByteString
+> ensureMapped lm offset size = do
+>   (winStart, winData) <- readIORef (lmWindow lm)
+>   let winEnd = winStart + fromIntegral (BS.length winData)
+>       needsRemap = offset < winStart || offset + size > winEnd
+>   
+>   if needsRemap
+>     then do
+>       -- Center the new window around the requested offset
+>       let halfWin = lmWindowSize lm `div` 2
+>           newStart = max 0 (offset - halfWin)
+>           maxSize = lmFileSize lm - newStart
+>           newSize = min (lmWindowSize lm) maxSize
+>           mapSpec = if newSize > 0 
+>                     then Just (fromIntegral newStart, fromIntegral newSize)
+>                     else Nothing
+>       newData <- if newSize > 0
+>                  then mmapFileByteString (lmPath lm) mapSpec
+>                  else return BS.empty
+>       writeIORef (lmWindow lm) (newStart, newData)
+>       return newData
+>     else return winData
+
 Helper: Count Total Lines
 --------------------------
 
@@ -231,15 +289,33 @@ A line is text terminated by LF or EOF.
 Note: This counts actual lines, not just newlines. A file ending without
 a trailing newline still has its last line counted.
 
+For large files, this scans in windows to avoid mapping the entire file.
+
 > countTotalLines :: LineMap -> IO Integer
 > countTotalLines lm = do
->   let bs = lmMapped lm
->       sz = BS.length bs
->   if sz == 0
+>   let fileSize = lmFileSize lm
+>   if fileSize == 0
 >     then return 0  -- Empty file has 0 lines
 >     else do
->       let nlCount = fromIntegral $ BS.count lfByte bs
->           lastByte = BS.last bs
+>       -- Scan file in windows, counting newlines
+>       let winSize = lmWindowSize lm
+>           loop offset nlCount = do
+>             if offset >= fileSize
+>               then return nlCount
+>               else do
+>                 let remaining = fileSize - offset
+>                     chunkSize = min winSize remaining
+>                 _ <- ensureMapped lm offset chunkSize
+>                 (winStart, winData) <- readIORef (lmWindow lm)
+>                 let relOffset = offset - winStart
+>                     chunk = BS.take (fromIntegral chunkSize) $ BS.drop (fromIntegral relOffset) winData
+>                     count = fromIntegral $ BS.count lfByte chunk
+>                 loop (offset + chunkSize) (nlCount + count)
+>       nlCount <- loop 0 0
+>       -- Check if file ends with newline
+>       _ <- ensureMapped lm (fileSize - 1) 1
+>       (winStart, winData) <- readIORef (lmWindow lm)
+>       let lastByte = BS.index winData (fromIntegral (fileSize - 1 - winStart))
 >           endsWithNL = lastByte == lfByte
 >           lineCount = if endsWithNL then nlCount else nlCount + 1
 >       return lineCount
@@ -292,8 +368,7 @@ This "scan and record crossings" approach ensures:
 
 > scanAndBuildIndex :: LineMap -> Offset -> Integer -> Integer -> IO Offset
 > scanAndBuildIndex lm startOffset startLine targetLine = do
->   let bs = lmMapped lm
->       fileSize = fromIntegral $ BS.length bs
+>   let fileSize = lmFileSize lm
 >       k = fromIntegral (lmIndexStep lm)
 >       buf = 65536
 >       loop offset curLine = do
@@ -305,7 +380,10 @@ This "scan and record crossings" approach ensures:
 >               then return offset
 >               else do
 >                 let chunkSize = min buf remaining
->                     chunk = BS.take (fromIntegral chunkSize) $ BS.drop (fromIntegral offset) bs
+>                 _ <- ensureMapped lm offset chunkSize
+>                 (winStart, winData) <- readIORef (lmWindow lm)
+>                 let relOffset = offset - winStart
+>                     chunk = BS.take (fromIntegral chunkSize) $ BS.drop (fromIntegral relOffset) winData
 >                     newlines = fromIntegral $ BS.count lfByte chunk
 >                     newOffset = offset + fromIntegral (BS.length chunk)
 >                 -- Check if we crossed any index boundaries and record them
@@ -372,8 +450,7 @@ and carry partial fragments to next chunk if needed.
 
 > scanLinesFromOffset :: LineMap -> Offset -> Integer -> Integer -> Int -> IO [T.Text]
 > scanLinesFromOffset lm off baseLine startLine count = do
->   let mapped = lmMapped lm
->       fileSize = fromIntegral $ BS.length mapped
+>   let fileSize = lmFileSize lm
 >       chunkSize = 65536
 >       go curLine acc remaining partial offset = do
 >         if remaining <= 0 then return acc
@@ -386,7 +463,10 @@ and carry partial fragments to next chunk if needed.
 >               return acc'
 >             else do
 >               let readSize = min chunkSize bytesRemaining
->                   chunk = BS.take (fromIntegral readSize) $ BS.drop (fromIntegral offset) mapped
+>               _ <- ensureMapped lm offset readSize
+>               (winStart, winData) <- readIORef (lmWindow lm)
+>               let relOffset = offset - winStart
+>                   chunk = BS.take (fromIntegral readSize) $ BS.drop (fromIntegral relOffset) winData
 >                   pieces = BS.split lfByte chunk -- split on LF
 >                   chunkEnded = (not (BS.null chunk)) && (BS.last chunk == lfByte)
 >               -- build list of complete pieces, and carry a new partial if chunk didn't end with NL
