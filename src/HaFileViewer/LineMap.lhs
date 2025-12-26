@@ -67,6 +67,7 @@ Module Header
 > import Data.IORef
 > import Control.Monad (when)
 > import Data.Int (Int64)
+> import Data.List (sortBy, nubBy)
 
 Constants
 ---------
@@ -276,6 +277,8 @@ Examples:
 >           backIndexed <- readIORef (lmBackIndexed lm)
 >           when (backIndexed < targetLinesFromEnd) $ do
 >             scanBackwardAndBuildIndex lm targetLinesFromEnd
+>             -- Check for convergence after backward scan
+>             checkAndMergeIndexes lm
 >           -- Check results
 >           backIndexed' <- readIORef (lmBackIndexed lm)
 >           reachedStart <- readIORef (lmReachedStart lm)
@@ -436,6 +439,49 @@ For large files, this scans in windows to avoid mapping the entire file.
 >           lineCount = if endsWithNL then nlCount else nlCount + 1
 >       return lineCount
 
+Convergence Detection and Index Merging
+----------------------------------------
+
+When forward and backward indexes meet, we can merge them into a complete
+unified index covering the entire file.
+
+Convergence Detection: Check if the highest offset in forward index meets
+or exceeds the lowest offset in backward index (after converting from
+EOF-relative to absolute).
+
+> checkAndMergeIndexes :: LineMap -> IO ()
+> checkAndMergeIndexes lm = do
+>   -- Check if total is already computed
+>   cachedTotal <- readIORef (lmTotalLines lm)
+>   case cachedTotal of
+>     Just _ -> return ()  -- Already computed, nothing to do
+>     Nothing -> do
+>       reachedStart <- readIORef (lmReachedStart lm)
+>       backwardIndexed <- readIORef (lmBackIndexed lm)
+>       
+>       -- Case 1: Backward scan reached start of file (fully scanned backward)
+>       if reachedStart
+>         then do
+>           let total = backwardIndexed
+>           writeIORef (lmTotalLines lm) (Just total)
+>         
+>         -- Case 2: Check if forward and backward indexes meet/overlap
+>         else do
+>           fwd <- readIORef (lmForward lm)
+>           back <- readIORef (lmBackward lm)
+>           
+>           when (not (VS.null fwd) && not (VS.null back)) $ do
+>             let fileSize = lmFileSize lm
+>                 fwdMaxOffset = fromIntegral (VS.last fwd)
+>                 backMinEofRel = fromIntegral (VS.last back)  -- last entry is closest to start
+>                 backMinOffset = fileSize - backMinEofRel
+>             
+>             when (fwdMaxOffset >= backMinOffset) $ do
+>               -- Convergence detected! Cache the total.
+>               forwardIndexed <- readIORef (lmIndexed lm)
+>               let total = forwardIndexed + backwardIndexed
+>               writeIORef (lmTotalLines lm) (Just total)
+
 Index Lookup and Building
 --------------------------
 
@@ -463,6 +509,8 @@ encountered during scans.
 >         let startLine = fromIntegral lastIdx * k
 >             startOffset = fromIntegral (fwd VS.! lastIdx)
 >         _ <- scanAndBuildIndex lm startOffset startLine baseLine
+>         -- Check for convergence after building forward index
+>         checkAndMergeIndexes lm
 >         -- After building, check if target was cached
 >         fwd' <- readIORef (lmForward lm)
 >         let lastIdx' = VS.length fwd' - 1
@@ -495,6 +543,8 @@ of lines from the end and returns the offset. Builds backward index on demand.
 >         -- Need to scan backward to build up to targetIdx
 >         let targetLines = (fromIntegral targetIdx + 1) * fromIntegral k
 >         scanBackwardAndBuildIndex lm targetLines
+>         -- Check for convergence after building backward index
+>         checkAndMergeIndexes lm
 >         -- After building, check if target was cached
 >         back' <- readIORef (lmBackward lm)
 >         let lastIdx' = VS.length back' - 1
