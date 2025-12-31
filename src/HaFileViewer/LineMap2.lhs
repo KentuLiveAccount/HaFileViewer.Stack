@@ -110,33 +110,75 @@ Public API
 
 Main API function.
 
+Negative Indexing Helpers
+--------------------------
+
+Convert negative index to positive using cached total and retrieve lines.
+
+> handleNegativeWithCache :: LineMap -> Integer -> Int -> Integer -> IO [T.Text]
+> handleNegativeWithCache lm start count total = do
+>   let startPos = max 0 (total + start)
+>       k = fromIntegral (lmIndexStep lm)
+>       baseLine = (startPos `div` k) * k
+>   baseOffset <- findOrScanTo lm baseLine
+>   scanLinesFromOffset lm baseOffset baseLine startPos count
+
+Handle case where backward scan reached file start (total is now known).
+
+> handleNegativeReachedStart :: LineMap -> Integer -> Int -> Integer -> IO [T.Text]
+> handleNegativeReachedStart lm start count total = do
+>   writeIORef (lmTotalLines lm) (Just total)
+>   let startPos = max 0 (total + start)
+>       k = fromIntegral (lmIndexStep lm)
+>       baseLine = (startPos `div` k) * k
+>   baseOffset <- findOrScanTo lm baseLine
+>   scanLinesFromOffset lm baseOffset baseLine startPos count
+
+Handle case where total must be computed from partial indexes.
+
+> handleNegativeComputeTotal :: LineMap -> Integer -> Int -> Integer -> Integer -> IO [T.Text]
+> handleNegativeComputeTotal lm start count linesFromEnd backLinesScanned = do
+>   let k = fromIntegral (lmIndexStep lm)
+>   if backLinesScanned < k
+>     then extractLinesFromBackwardScan lm linesFromEnd count
+>     else do
+>       total <- computeTotalFromIndexes lm
+>       writeIORef (lmTotalLines lm) (Just total)
+>       let startPos = max 0 (total + start)
+>           baseLine = (startPos `div` k) * k
+>       baseOffset <- findOrScanTo lm baseLine
+>       scanLinesFromOffset lm baseOffset baseLine startPos count
+
+Main Entry Point
+----------------
+
+Positive Indexing Helper
+-------------------------
+
+Handle forward/positive indexing - find K-boundary and scan forward.
+
+> handlePositiveIndex :: LineMap -> Integer -> Int -> IO [T.Text]
+> handlePositiveIndex lm start count = do
+>   let k = fromIntegral (lmIndexStep lm)
+>       baseLine = (start `div` k) * k
+>   baseOffset <- findOrScanTo lm baseLine
+>   lns <- scanLinesFromOffset lm baseOffset baseLine start count
+>   -- If we got fewer lines than requested, we hit EOF - cache the total
+>   when (length lns < count) $ do
+>     let totalLines = start + fromIntegral (length lns)
+>     writeIORef (lmTotalLines lm) (Just totalLines)
+>   return lns
+
 > getLines :: LineMap -> Integer -> Int -> IO [T.Text]
 > getLines lm start count
 >   | count <= 0 = return []
 >   | lmFileSize lm == 0 = return []
->   | start >= 0 = do
->       -- Positive indexing - use forward scan
->       let k = fromIntegral (lmIndexStep lm)
->           baseLine = (start `div` k) * k
->       baseOffset <- findOrScanTo lm baseLine
->       lns <- scanLinesFromOffset lm baseOffset baseLine start count
->       -- If we got fewer lines than requested, we hit EOF - cache the total
->       when (length lns < count) $ do
->         let totalLines = start + fromIntegral (length lns)
->         writeIORef (lmTotalLines lm) (Just totalLines)
->       return lns
+>   | start >= 0 = handlePositiveIndex lm start count
 >   | otherwise = do
 >       -- Negative indexing - check cache first
 >       cachedTotal <- readIORef (lmTotalLines lm)
 >       case cachedTotal of
->         Just total -> do
->           -- Use cached total to convert to positive index
->           let startPos = max 0 (total + start)
->               k = fromIntegral (lmIndexStep lm)
->               baseLine = (startPos `div` k) * k
->           baseOffset <- findOrScanTo lm baseLine
->           lns <- scanLinesFromOffset lm baseOffset baseLine startPos count
->           return lns
+>         Just total -> handleNegativeWithCache lm start count total
 >         Nothing -> do
 >           -- No cached total - use backward index
 >           let linesFromEnd = abs start
@@ -157,28 +199,8 @@ Main API function.
 >             then do
 >               -- Reached start of file, total is known
 >               let Just (Backward total) = Map.lookup 0 idx
->               writeIORef (lmTotalLines lm) (Just total)
->               let startPos = max 0 (total + start)
->                   k = fromIntegral (lmIndexStep lm)
->                   baseLine = (startPos `div` k) * k
->               baseOffset <- findOrScanTo lm baseLine
->               lns <- scanLinesFromOffset lm baseOffset baseLine startPos count
->               return lns
->             else do
->               -- Didn't reach beginning - check fast path
->               let k = fromIntegral (lmIndexStep lm)
->               if backLinesScanned' < k
->                 then extractLinesFromBackwardScan lm linesFromEnd count
->                 else do
->                   -- Need to compute total
->                   total <- computeTotalFromIndexes lm
->                   writeIORef (lmTotalLines lm) (Just total)
->                   let startPos = max 0 (total + start)
->                       baseLine = (startPos `div` k) * k
-
->                   baseOffset <- findOrScanTo lm baseLine
->                   lns <- scanLinesFromOffset lm baseOffset baseLine startPos count
->                   return lns
+>               handleNegativeReachedStart lm start count total
+>             else handleNegativeComputeTotal lm start count linesFromEnd backLinesScanned'
 
 Helper: Windowed Memory Mapping
 -------------------------------
