@@ -15,6 +15,7 @@ build-type:     Simple
 library
     exposed-modules:
           HaFileViewer.LineMap
+          HaFileViewer.LineMap2
     other-modules:
           Paths_ha_file_viewer
     hs-source-dirs:
@@ -23,6 +24,7 @@ library
     build-depends:
           base >=4.9 && <5
         , bytestring
+        , containers
         , mmap
         , text
         , vector
@@ -66,6 +68,26 @@ test-suite ha-file-viewer-test
           Paths_ha_file_viewer
     hs-source-dirs:
           test
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+    build-depends:
+          base
+        , bytestring
+        , directory
+        , filepath
+        , ha-file-viewer
+        , hspec
+        , temporary
+        , text
+        , time
+    default-language: Haskell2010
+
+test-suite ha-file-viewer-test2
+    type: exitcode-stdio-1.0
+    main-is: Spec.hs
+    other-modules:
+          Paths_ha_file_viewer
+    hs-source-dirs:
+          test2
     ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
     build-depends:
           base

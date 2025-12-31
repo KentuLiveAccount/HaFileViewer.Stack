@@ -7,6 +7,7 @@ extra-source-files: []
 library:
   exposed-modules: 
     - HaFileViewer.LineMap
+    - HaFileViewer.LineMap2
   source-dirs: src
   ghc-options: -Wall
   dependencies:
@@ -15,6 +16,7 @@ library:
     - text
     - vector
     - mmap
+    - containers
     
 
 executables:
@@ -45,6 +47,21 @@ tests:
   ha-file-viewer-test:
     main: Spec.hs
     source-dirs: test
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+    dependencies:
+      - ha-file-viewer
+      - base
+      - hspec
+      - temporary
+      - filepath
+      - directory
+      - text
+      - bytestring
+      - time
+
+  ha-file-viewer-test2:
+    main: Spec.hs
+    source-dirs: test2
     ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
     dependencies:
       - ha-file-viewer
