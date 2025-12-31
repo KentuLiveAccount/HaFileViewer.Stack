@@ -256,6 +256,19 @@ Find or scan to a target line, returning the byte offset.
 
 Scan from a known offset/line to find the target line.
 
+Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
+
+> recordForwardIndexEntries :: LineMap -> Integer -> [Int] -> Integer -> Offset -> IO ()
+> recordForwardIndexEntries lm k positions lineNum offset = do
+>   let recordIndex ln off =
+>         when (ln `mod` k == 0) $ do
+>           modifyIORef' (lmIndex lm) (Map.insert off (Forward ln))
+>   mapM_ (\i -> let pos = positions !! i
+>                    ln = lineNum + fromIntegral i + 1
+>                    off = offset + fromIntegral pos + 1
+>                in recordIndex ln off)
+>         [0 .. length positions - 1]
+
 > scanToLine :: LineMap -> Offset -> Integer -> Integer -> IO Offset
 > scanToLine lm startOffset startLine targetLine = do
 >   let k = fromIntegral (lmIndexStep lm)
@@ -279,31 +292,15 @@ Scan from a known offset/line to find the target line.
 >                     -- Target is in this chunk
 >                     let targetPos = positions !! (fromIntegral linesLeft - 1)
 >                         finalOffset = offset + fromIntegral targetPos + 1
-
 >                     -- Record index entries at K boundaries
->                     let recordIndex ln off =
->                           when (ln `mod` k == 0) $ do
->                             modifyIORef' (lmIndex lm) (Map.insert off (Forward ln))
->                     mapM_ (\i -> let pos = positions !! i
->                                      ln = lineNum + fromIntegral i + 1
->                                      off = offset + fromIntegral pos + 1
->                                  in recordIndex ln off)
->                           [0 .. linesInChunk - 1]
+>                     recordForwardIndexEntries lm k positions lineNum offset
 >                     return finalOffset
 >                   else do
 >                     -- Keep scanning
+>                     recordForwardIndexEntries lm k positions lineNum offset
 >                     let newOffset = offset + fromIntegral (BS.length chunk)
 >                         newLineNum = lineNum + fromIntegral linesInChunk
 >                         newLinesLeft = linesLeft - fromIntegral linesInChunk
->                     -- Record index entries
->                     let recordIndex ln off =
->                           when (ln `mod` k == 0) $ do
->                             modifyIORef' (lmIndex lm) (Map.insert off (Forward ln))
->                     mapM_ (\i -> let pos = positions !! i
->                                      ln = lineNum + fromIntegral i + 1
->                                      off = offset + fromIntegral pos + 1
->                                  in recordIndex ln off)
->                           [0 .. linesInChunk - 1]
 >                     loop newOffset newLineNum newLinesLeft
 >   
 >   loop startOffset startLine linesToScan
