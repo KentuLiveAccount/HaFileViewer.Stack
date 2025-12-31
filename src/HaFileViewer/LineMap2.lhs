@@ -72,7 +72,9 @@ The LineMap with unified index structure.
 >   , lmTotalLines  :: IORef (Maybe Integer)    -- Cached total
 >   , lmBackIndexed :: IORef Integer            -- Lines scanned from EOF
 >   , lmBackOffset  :: IORef Offset             -- Furthest offset scanned backward to
->   }
+>   }                                           -- CRITICAL: lmBackIndexed and lmBackOffset must
+>                                               -- always refer to the same K-boundary position!
+>                                               -- See computeTotalFromIndexes for why.
 
 Default index step.
 
@@ -389,7 +391,12 @@ Scan backward from EOF to build Backward index entries.
 >                         linesFromEndHere = linesFromEnd + fromIntegral (linesInChunk - i - 1)
 >                     when (linesFromEndHere `mod` k == 0) $ do
 >                       modifyIORef' (lmIndex lm) (Map.insert absoluteOffset (Backward linesFromEndHere))
->                       -- Update tracked values to match this K-boundary entry
+>                       -- CRITICAL: Update tracked values to match this K-boundary entry.
+>                       -- lmBackIndexed and lmBackOffset must ALWAYS refer to an actual indexed
+>                       -- K-boundary position, not arbitrary chunk boundaries. This ensures that
+>                       -- computeTotalFromIndexes correctly calculates: total = linesFromStart + backIndexed
+>                       -- where linesFromStart is newlines from 0 to lmBackOffset, and backIndexed is
+>                       -- lines from lmBackOffset to EOF, both referring to the same offset.
 >                       writeIORef (lmBackIndexed lm) linesFromEndHere
 >                       writeIORef (lmBackOffset lm) absoluteOffset
 >               
