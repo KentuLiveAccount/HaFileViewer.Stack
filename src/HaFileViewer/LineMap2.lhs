@@ -22,19 +22,18 @@ Module Header
 > import qualified Data.Map.Strict as Map
 > import qualified Data.ByteString as BS
 > import qualified Data.Text as T
-> import qualified Data.Text.Encoding as TE
-> import qualified Data.Text.Encoding.Error as TEE
 > import System.IO.MMap (mmapFileByteString)
 > import System.IO (withFile, IOMode(..), hFileSize)
-> import Data.Word
 > import Data.IORef
 > import Control.Monad (when)
-
-Constants
----------
-
-> lfByte :: Word8
-> lfByte = 10
+> import HaFileViewer.LineMap.Common
+>   ( Offset
+>   , lfByte
+>   , normalizeLine
+>   , decodeUtf8Lenient
+>   , ensureMapped
+>   , readAtOffset
+>   )
 
 Core Data Types
 ---------------
@@ -59,7 +58,6 @@ Check if we can use this entry (Forward always usable, Backward only if total kn
 
 The LineMap with unified index structure.
 
-> type Offset = Integer
 > type IndexMap = Map.Map Offset LineIndex
 >
 > data LineMap = LineMap
@@ -205,41 +203,13 @@ Handle forward/positive indexing - find K-boundary and scan forward.
 Helper: Windowed Memory Mapping
 -------------------------------
 
-> ensureMapped :: LineMap -> Offset -> Integer -> IO ()
-> ensureMapped lm offset size = do
->   (winStart, winData) <- readIORef (lmWindow lm)
->   let winEnd = winStart + fromIntegral (BS.length winData)
->       needsRemap = offset < winStart || offset + size > winEnd
->   
->   when needsRemap $ do
->     let halfWin = lmWindowSize lm `div` 2
->         newStart = max 0 (offset - halfWin)
->         maxSize = lmFileSize lm - newStart
->         newSize = min (lmWindowSize lm) maxSize
->         mapSpec = if newSize > 0 
->                   then Just (fromIntegral newStart, fromIntegral newSize)
->                   else Nothing
->     newData <- if newSize > 0
->                then mmapFileByteString (lmPath lm) mapSpec
->                else return BS.empty
->     writeIORef (lmWindow lm) (newStart, newData)
+Wrapper functions that use the common utilities with LineMap fields.
 
-> readAtOffset :: LineMap -> Offset -> Integer -> IO BS.ByteString
-> readAtOffset lm offset size = do
->   ensureMapped lm offset size
->   (winStart, winData) <- readIORef (lmWindow lm)
->   let relOffset = offset - winStart
->       chunk = BS.take (fromIntegral size) $ BS.drop (fromIntegral relOffset) winData
->   return chunk
+> ensureMappedLM :: LineMap -> Offset -> Integer -> IO ()
+> ensureMappedLM lm = ensureMapped (lmPath lm) (lmFileSize lm) (lmWindowSize lm) (lmWindow lm)
 
-Text Processing
----------------
-
-> normalizeLine :: T.Text -> T.Text
-> normalizeLine = T.dropWhileEnd (== '\r')
->
-> decodeUtf8Lenient :: BS.ByteString -> T.Text
-> decodeUtf8Lenient = TE.decodeUtf8With TEE.lenientDecode
+> readAtOffsetLM :: LineMap -> Offset -> Integer -> IO BS.ByteString
+> readAtOffsetLM lm = readAtOffset (lmPath lm) (lmFileSize lm) (lmWindowSize lm) (lmWindow lm)
 
 Core Index Operations
 ---------------------
@@ -305,7 +275,7 @@ Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 >             if readSize <= 0
 >               then return offset
 >               else do
->                 chunk <- readAtOffset lm offset readSize
+>                 chunk <- readAtOffsetLM lm offset readSize
 >                 let positions = BS.elemIndices lfByte chunk
 >                     linesInChunk = length positions
 >                 
@@ -344,7 +314,7 @@ Scan lines from a given offset.
 >               return acc'
 >             else do
 >               let readSize = min chunkSize bytesRemaining
->               chunk <- readAtOffset lm offset readSize
+>               chunk <- readAtOffsetLM lm offset readSize
 >               let pieces = BS.split lfByte chunk
 >                   chunkEnded = (not (BS.null chunk)) && (BS.last chunk == lfByte)
 >               let (textsBS, newPartial) = case pieces of
@@ -389,7 +359,7 @@ Scan backward from EOF to build Backward index entries.
 >       else if fileSize == 0
 >         then return 0
 >         else do
->           lastByteChunk <- readAtOffset lm (fileSize - 1) 1
+>           lastByteChunk <- readAtOffsetLM lm (fileSize - 1) 1
 >           let lastByte = BS.head lastByteChunk
 >               endsWithNL = lastByte == lfByte
 >           return $ if endsWithNL then 0 else 1
@@ -400,7 +370,7 @@ Scan backward from EOF to build Backward index entries.
 >             else do
 >               let readSize = min chunkSize offset
 >                   readStart = offset - readSize
->               chunk <- readAtOffset lm readStart readSize
+>               chunk <- readAtOffsetLM lm readStart readSize
 >               let lfPositions = BS.elemIndices lfByte chunk
 >                   linesInChunk = length lfPositions
 >                   
@@ -458,7 +428,7 @@ Extract lines directly from backward scan without computing total.
 >           else do
 >             let chunkStart = max 0 (offset - chunkSize)
 >                 readSize = offset - chunkStart
->             chunk <- readAtOffset lm chunkStart readSize
+>             chunk <- readAtOffsetLM lm chunkStart readSize
 >             
 >             let pieces = BS.split lfByte chunk
 >                 chunkEndsWithLF = not (BS.null chunk) && BS.last chunk == lfByte
@@ -534,7 +504,7 @@ Count lines up to a given offset.
 >           else do
 >             let remaining = targetOffset - offset
 >                 readSize = min chunkSize remaining
->             chunk <- readAtOffset lm offset readSize
+>             chunk <- readAtOffsetLM lm offset readSize
 >             let count = fromIntegral $ BS.count lfByte chunk
 >             loop (offset + readSize) (nlCount + count)
 >   loop 0 0
@@ -554,13 +524,14 @@ Count total lines in file.
 >               else do
 >                 let remaining = fileSize - offset
 >                     readSize = min chunkSize remaining
->                 chunk <- readAtOffset lm offset readSize
+>                 chunk <- readAtOffsetLM lm offset readSize
 >                 let count = fromIntegral $ BS.count lfByte chunk
 >                 loop (offset + readSize) (nlCount + count)
 >       nlCount <- loop 0 0
 >       -- Check if file ends with newline
->       lastByteChunk <- readAtOffset lm (fileSize - 1) 1
+>       lastByteChunk <- readAtOffsetLM lm (fileSize - 1) 1
 >       let lastByte = BS.head lastByteChunk
 >           endsWithNL = lastByte == lfByte
 >           lineCount = if endsWithNL then nlCount else nlCount + 1
 >       return lineCount
+

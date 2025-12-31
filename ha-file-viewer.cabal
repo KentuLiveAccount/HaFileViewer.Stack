@@ -17,6 +17,7 @@ library
           HaFileViewer.LineMap
           HaFileViewer.LineMap2
     other-modules:
+          HaFileViewer.LineMap.Common
           Paths_ha_file_viewer
     hs-source-dirs:
           src
