@@ -70,6 +70,8 @@ The LineMap with unified index structure.
 >   , lmIndexStep   :: Int
 >   , lmIndex       :: IORef IndexMap           -- Unified offset-to-line map
 >   , lmTotalLines  :: IORef (Maybe Integer)    -- Cached total
+>   , lmBackIndexed :: IORef Integer            -- Lines scanned from EOF
+>   , lmBackOffset  :: IORef Offset             -- Furthest offset scanned backward to
 >   }
 
 Default index step.
@@ -97,7 +99,9 @@ Public API
 >   -- Start with just offset 0 → line 0
 >   indexRef <- newIORef (Map.singleton 0 (Forward 0))
 >   totalRef <- newIORef Nothing
->   return $ LineMap path fileSize windowSizeDefault winRef k indexRef totalRef
+>   backIndexedRef <- newIORef 0
+>   backOffsetRef <- newIORef fileSize  -- Will be updated on first backward scan
+>   return $ LineMap path fileSize windowSizeDefault winRef k indexRef totalRef backIndexedRef backOffsetRef
 
 > closeLineMap :: LineMap -> IO ()
 > closeLineMap _lm = return ()
@@ -136,12 +140,12 @@ Main API function.
 >           let linesFromEnd = abs start
 >               targetLinesFromEnd = linesFromEnd + fromIntegral count
 >           -- Scan backward if needed
->           backLinesScanned <- countBackwardLines lm
+>           backLinesScanned <- readIORef (lmBackIndexed lm)
 >           when (backLinesScanned < targetLinesFromEnd) $ do
 >             scanBackwardAndBuildIndex lm targetLinesFromEnd
 >             checkAndMergeIndexes lm
 >           -- Check results
->           backLinesScanned' <- countBackwardLines lm
+>           backLinesScanned' <- readIORef (lmBackIndexed lm)
 >           idx <- readIORef (lmIndex lm)
 >           let hasBackwardAtStart = Map.member 0 idx && case Map.lookup 0 idx of
 >                                      Just (Backward _) -> True
@@ -169,6 +173,7 @@ Main API function.
 >                   writeIORef (lmTotalLines lm) (Just total)
 >                   let startPos = max 0 (total + start)
 >                       baseLine = (startPos `div` k) * k
+
 >                   baseOffset <- findOrScanTo lm baseLine
 >                   lns <- scanLinesFromOffset lm baseOffset baseLine startPos count
 >                   return lns
@@ -224,6 +229,7 @@ Find or scan to a target line, returning the byte offset.
 >       idx <- readIORef (lmIndex lm)
 >       cachedTotal <- readIORef (lmTotalLines lm)
 >       
+
 >       -- Find closest indexed line at or before target
 >       let usableEntries = [(off, ln) | (off, li) <- Map.toList idx
 >                                       , isUsable cachedTotal li
@@ -234,12 +240,14 @@ Find or scan to a target line, returning the byte offset.
 >                                                 Nothing -> -1
 >                                       , ln >= 0 && ln <= targetLine]
 >       
+
 >       case usableEntries of
 >         [] -> do
 >           -- No usable index, scan from beginning
 >           scanToLine lm 0 0 targetLine
 >         _ -> do
->           let (closestOff, closestLine) = maximum [(ln, off) | (off, ln) <- usableEntries]
+>           let (closestLine, closestOff) = maximum [(ln, off) | (off, ln) <- usableEntries]
+
 >           if closestLine == targetLine
 >             then return closestOff
 >             else scanToLine lm closestOff closestLine targetLine
@@ -269,6 +277,7 @@ Scan from a known offset/line to find the target line.
 >                     -- Target is in this chunk
 >                     let targetPos = positions !! (fromIntegral linesLeft - 1)
 >                         finalOffset = offset + fromIntegral targetPos + 1
+
 >                     -- Record index entries at K boundaries
 >                     let recordIndex ln off =
 >                           when (ln `mod` k == 0) $ do
@@ -347,7 +356,7 @@ Scan backward from EOF to build Backward index entries.
 
 > scanBackwardAndBuildIndex :: LineMap -> Integer -> IO ()
 > scanBackwardAndBuildIndex lm targetLinesFromEnd = do
->   backLinesScanned <- countBackwardLines lm
+>   backLinesScanned <- readIORef (lmBackIndexed lm)
 >   when (backLinesScanned < targetLinesFromEnd) $ do
 >     let k = fromIntegral (lmIndexStep lm)
 >         fileSize = lmFileSize lm
@@ -377,17 +386,25 @@ Scan backward from EOF to build Backward index entries.
 >                   recordIndex i = do
 >                     let pos = lfPositions !! i
 >                         absoluteOffset = readStart + fromIntegral pos + 1
->                         linesFromEndHere = linesFromEnd + fromIntegral (linesInChunk - i)
+>                         linesFromEndHere = linesFromEnd + fromIntegral (linesInChunk - i - 1)
 >                     when (linesFromEndHere `mod` k == 0) $ do
 >                       modifyIORef' (lmIndex lm) (Map.insert absoluteOffset (Backward linesFromEndHere))
+>                       -- Update tracked values to match this K-boundary entry
+>                       writeIORef (lmBackIndexed lm) linesFromEndHere
+>                       writeIORef (lmBackOffset lm) absoluteOffset
 >               
 >               mapM_ recordIndex [linesInChunk - 1, linesInChunk - 2 .. 0]
 >               
 >               let newLinesFromEnd = linesFromEnd + fromIntegral linesInChunk
+>               -- Note: lmBackIndexed and lmBackOffset are updated in recordIndex for K-boundaries
+>               -- We don't update them here to keep them at the last K-boundary
 >               if readStart == 0
 >                 then do
 >                   -- Reached beginning
 >                   modifyIORef' (lmIndex lm) (Map.insert 0 (Backward newLinesFromEnd))
+>                   -- Update to reflect reaching the start
+>                   writeIORef (lmBackIndexed lm) newLinesFromEnd
+>                   writeIORef (lmBackOffset lm) 0
 >                   return ()
 >                 else loop readStart newLinesFromEnd
 >     
@@ -465,19 +482,20 @@ Compute total lines from converged indexes.
 
 > computeTotalFromIndexes :: LineMap -> IO Integer
 > computeTotalFromIndexes lm = do
->   idx <- readIORef (lmIndex lm)
->   let backwardOffsets = [(off, n) | (off, Backward n) <- Map.toList idx]
+>   backIndexed <- readIORef (lmBackIndexed lm)
+>   lastBackOffset <- readIORef (lmBackOffset lm)
 >   
->   if null backwardOffsets
+>   if backIndexed == 0
 >     then do
 >       -- No backward index, scan entire file
 >       countTotalLines lm
 >     else do
->       let (lastBackOffset, linesFromEnd) = maximum backwardOffsets
->       -- Count lines from start to this offset
+>       -- Count lines from start to the actual furthest scanned offset
 >       linesFromStart <- countLinesUpTo lm lastBackOffset
->       -- Match original formula: lines before + lines after + 1
->       return (linesFromStart + linesFromEnd + 1)
+
+>       -- Total = lines before scan point + lines scanned from EOF
+>       -- (no +1 needed because backIndexed already includes initial partial line if any)
+>       return (linesFromStart + backIndexed)
 
 Count lines up to a given offset.
 
