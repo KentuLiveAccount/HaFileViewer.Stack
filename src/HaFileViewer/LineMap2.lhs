@@ -79,10 +79,15 @@ Default index step.
 > indexStepDefault :: Int
 > indexStepDefault = 1024
 
-Default window size.
+Default window size for memory mapping.
 
 > windowSizeDefault :: Integer
 > windowSizeDefault = 100 * 1024 * 1024
+
+Default chunk size for sequential scanning.
+
+> scanChunkSizeDefault :: Integer
+> scanChunkSizeDefault = 65536  -- 64 KB: good balance between cache locality and I/O efficiency
 
 Public API
 ----------
@@ -265,7 +270,7 @@ Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 > scanToLine lm startOffset startLine targetLine = do
 >   let k = fromIntegral (lmIndexStep lm)
 >       linesToScan = targetLine - startLine
->       chunkSize = 65536
+>       chunkSize = scanChunkSizeDefault
 >       
 >       loop offset lineNum linesLeft = do
 >         if linesLeft <= 0
@@ -302,7 +307,7 @@ Scan lines from a given offset.
 > scanLinesFromOffset :: LineMap -> Offset -> Integer -> Integer -> Int -> IO [T.Text]
 > scanLinesFromOffset lm startOffset startLine targetLine count = do
 >   let fileSize = lmFileSize lm
->       chunkSize = 65536
+>       chunkSize = scanChunkSizeDefault
 >       go curLine acc remaining partial offset = do
 >         if remaining <= 0 then return acc
 >         else do
@@ -351,7 +356,7 @@ Scan backward from EOF to build Backward index entries.
 >   when (backLinesScanned < targetLinesFromEnd) $ do
 >     let k = fromIntegral (lmIndexStep lm)
 >         fileSize = lmFileSize lm
->         chunkSize = 65536
+>         chunkSize = scanChunkSizeDefault
 >     
 >     -- Initialize based on whether we've scanned before and whether file ends with LF
 >     initLinesFromEnd <- if backLinesScanned > 0
@@ -419,7 +424,7 @@ Extract lines directly from backward scan without computing total.
 > extractLinesFromBackwardScan :: LineMap -> Integer -> Int -> IO [T.Text]
 > extractLinesFromBackwardScan lm linesFromEnd count = do
 >   let fileSize = lmFileSize lm
->       chunkSize = 65536
+>       chunkSize = scanChunkSizeDefault
 >       targetLines = fromIntegral linesFromEnd + fromIntegral count - 1
 >       
 >       loop offset accLines = do
@@ -497,7 +502,7 @@ Count lines up to a given offset.
 
 > countLinesUpTo :: LineMap -> Offset -> IO Integer
 > countLinesUpTo lm targetOffset = do
->   let chunkSize = 65536
+>   let chunkSize = scanChunkSizeDefault
 >       loop offset nlCount = do
 >         if offset >= targetOffset
 >           then return nlCount
@@ -517,7 +522,7 @@ Count total lines in file.
 >   if fileSize == 0
 >     then return 0
 >     else do
->       let chunkSize = 65536
+>       let chunkSize = scanChunkSizeDefault
 >           loop offset nlCount endsWithNL = do
 >             if offset >= fileSize
 >               then return (nlCount, endsWithNL)
