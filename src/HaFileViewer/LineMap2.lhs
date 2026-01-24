@@ -518,20 +518,19 @@ Count total lines in file.
 >     then return 0
 >     else do
 >       let chunkSize = 65536
->           loop offset nlCount = do
+>           loop offset nlCount endsWithNL = do
 >             if offset >= fileSize
->               then return nlCount
+>               then return (nlCount, endsWithNL)
 >               else do
 >                 let remaining = fileSize - offset
 >                     readSize = min chunkSize remaining
 >                 chunk <- readAtOffsetLM lm offset readSize
 >                 let count = fromIntegral $ BS.count lfByte chunk
->                 loop (offset + readSize) (nlCount + count)
->       nlCount <- loop 0 0
->       -- Check if file ends with newline
->       lastByteChunk <- readAtOffsetLM lm (fileSize - 1) 1
->       let lastByte = BS.head lastByteChunk
->           endsWithNL = lastByte == lfByte
->           lineCount = if endsWithNL then nlCount else nlCount + 1
+>                     -- Track if this chunk ends with newline
+>                     chunkEndsWithNL = not (BS.null chunk) && BS.last chunk == lfByte
+>                 loop (offset + readSize) (nlCount + count) chunkEndsWithNL
+>       (nlCount, endsWithNL) <- loop 0 0 False
+>       -- Use the boolean we tracked during the loop
+>       let lineCount = if endsWithNL then nlCount else nlCount + 1
 >       return lineCount
 
