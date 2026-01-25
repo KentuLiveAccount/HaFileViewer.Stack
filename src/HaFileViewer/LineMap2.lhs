@@ -500,19 +500,35 @@ Compute total lines from converged indexes.
 
 Count lines up to a given offset.
 
+Helper: Fold over file chunks with accumulating state.
+
+This is a general streaming fold that processes a file in chunks without
+materializing an intermediate list. It's used by multiple counting functions.
+
+> foldFileChunks :: LineMap    -- ^ The line map with file access
+>                -> Offset      -- ^ Starting byte offset
+>                -> Offset      -- ^ Ending byte offset (exclusive)
+>                -> s           -- ^ Initial state
+>                -> (s -> BS.ByteString -> IO s)  -- ^ State update function
+>                -> IO s        -- ^ Final state
+> foldFileChunks lm startOffset endOffset initialState processChunk =
+>   loop startOffset initialState
+>   where
+>     loop offset state
+>       | offset >= endOffset = return state
+>       | otherwise = do
+>           let remaining = endOffset - offset
+>               readSize = min scanChunkSizeDefault remaining
+>           chunk <- readAtOffsetLM lm offset readSize
+>           newState <- processChunk state chunk
+>           loop (offset + readSize) newState
+
+Count lines up to a given offset.
+
 > countLinesUpTo :: LineMap -> Offset -> IO Integer
-> countLinesUpTo lm targetOffset = do
->   let chunkSize = scanChunkSizeDefault
->       loop offset nlCount = do
->         if offset >= targetOffset
->           then return nlCount
->           else do
->             let remaining = targetOffset - offset
->                 readSize = min chunkSize remaining
->             chunk <- readAtOffsetLM lm offset readSize
->             let count = fromIntegral $ BS.count lfByte chunk
->             loop (offset + readSize) (nlCount + count)
->   loop 0 0
+> countLinesUpTo lm targetOffset =
+>   foldFileChunks lm 0 targetOffset 0 $ \nlCount chunk ->
+>     return $ nlCount + fromIntegral (BS.count lfByte chunk)
 
 Count total lines in file.
 
@@ -522,20 +538,12 @@ Count total lines in file.
 >   if fileSize == 0
 >     then return 0
 >     else do
->       let chunkSize = scanChunkSizeDefault
->           loop offset nlCount endsWithNL = do
->             if offset >= fileSize
->               then return (nlCount, endsWithNL)
->               else do
->                 let remaining = fileSize - offset
->                     readSize = min chunkSize remaining
->                 chunk <- readAtOffsetLM lm offset readSize
->                 let count = fromIntegral $ BS.count lfByte chunk
->                     -- Track if this chunk ends with newline
->                     chunkEndsWithNL = not (BS.null chunk) && BS.last chunk == lfByte
->                 loop (offset + readSize) (nlCount + count) chunkEndsWithNL
->       (nlCount, endsWithNL) <- loop 0 0 False
->       -- Use the boolean we tracked during the loop
+>       (nlCount, endsWithNL) <- foldFileChunks lm 0 fileSize (0, False) processChunk
 >       let lineCount = if endsWithNL then nlCount else nlCount + 1
 >       return lineCount
+>   where
+>     processChunk (count, _) chunk =
+>       let newCount = count + fromIntegral (BS.count lfByte chunk)
+>           chunkEndsWithNL = not (BS.null chunk) && BS.last chunk == lfByte
+>       in return (newCount, chunkEndsWithNL)
 
