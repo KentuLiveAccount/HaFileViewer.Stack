@@ -302,9 +302,21 @@ Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 >   
 >   loop startOffset startLine linesToScan
 
-Scan lines from a given offset.
+Scan lines from a given offset and return them as Text.
 
-> scanLinesFromOffset :: LineMap -> Offset -> Integer -> Integer -> Int -> IO [T.Text]
+This function reads a range of lines from a file, starting from a known
+byte offset and line number. It handles:
+- Lines split across chunk boundaries
+- Files that don't end with a newline
+- Skipping lines before the target
+- Windows (CRLF) and Unix (LF) line endings
+
+> scanLinesFromOffset :: LineMap   -- ^ The line map with file access
+>                     -> Offset     -- ^ Starting byte offset in file
+>                     -> Integer    -- ^ Line number at startOffset (0-based)
+>                     -> Integer    -- ^ Target line number to start reading (0-based)
+>                     -> Int        -- ^ Number of lines to read
+>                     -> IO [T.Text]  -- ^ List of text lines (without newlines)
 > scanLinesFromOffset lm startOffset startLine targetLine count = do
 >   let fileSize = lmFileSize lm
 >       chunkSize = scanChunkSizeDefault
