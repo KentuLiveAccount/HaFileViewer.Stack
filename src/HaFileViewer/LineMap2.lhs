@@ -22,6 +22,7 @@ Module Header
 > import qualified Data.Map.Strict as Map
 > import qualified Data.ByteString as BS
 > import qualified Data.Text as T
+> import Data.List (unsnoc)
 > import System.IO.MMap (mmapFileByteString)
 > import System.IO (withFile, IOMode(..), hFileSize)
 > import Data.IORef
@@ -320,6 +321,7 @@ byte offset and line number. It handles:
 > scanLinesFromOffset lm startOffset startLine targetLine count = do
 >   let fileSize = lmFileSize lm
 >       chunkSize = scanChunkSizeDefault
+
 >       go curLine acc remaining partial offset = do
 >         if remaining <= 0 then return acc
 >         else do
@@ -341,7 +343,10 @@ byte offset and line number. It handles:
 >                                 else ([], BS.append partial only)
 >                     (p:ps) -> if chunkEnded
 >                                 then ((BS.append partial p) : ps, BS.empty)
->                                 else ((BS.append partial p) : init ps, last ps)
+>                                 else case unsnoc ps of
+>                                   Nothing -> ([BS.append partial p], BS.empty)
+>                                   Just (initPs, lastPs) -> 
+>                                     ((BS.append partial p) : initPs, lastPs)
 >                   texts = map decodeUtf8Lenient textsBS
 >                   numNew = length texts
 >               let allLines = texts
@@ -355,6 +360,7 @@ byte offset and line number. It handles:
 >                       newRemaining = remaining - length toTake
 >                       newOffset = offset + fromIntegral readSize
 >                   go newCur acc' newRemaining newPartial newOffset
+
 >   go startLine [] count BS.empty startOffset
 
 Backward Scanning
