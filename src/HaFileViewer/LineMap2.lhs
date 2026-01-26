@@ -628,12 +628,24 @@ Compute total lines from converged indexes.
 >   
 >   if backIndexed == 0
 >     then do
->       -- No backward index, scan entire file
->       countTotalLines lm
+>       -- No backward index yet, scan backward to EOF to build it
+>       -- We need to scan enough to reach file start - use a large number
+>       let fileSize = lmFileSize lm
+>       -- Estimate: assume ~60 bytes per line average, so maxLines = fileSize / 60
+>       let estimatedLines = max (fileSize `div` 60) 1000000
+>       scanBackwardAndBuildIndex lm estimatedLines
+>       -- After scanning, get the total from the backward index
+>       backIndexed' <- readIORef (lmBackIndexed lm)
+>       lastBackOffset' <- readIORef (lmBackOffset lm)
+>       if lastBackOffset' == 0
+>         then return backIndexed'  -- Reached file start
+>         else do
+>           -- Still didn't reach start, count remaining
+>           linesFromStart <- countLinesUpTo lm lastBackOffset'
+>           return (linesFromStart + backIndexed')
 >     else do
 >       -- Count lines from start to the actual furthest scanned offset
 >       linesFromStart <- countLinesUpTo lm lastBackOffset
-
 >       -- Total = lines before scan point + lines scanned from EOF
 >       -- (no +1 needed because backIndexed already includes initial partial line if any)
 >       return (linesFromStart + backIndexed)
@@ -671,22 +683,4 @@ Count lines up to a given offset.
 > countLinesUpTo lm targetOffset =
 >   foldFileChunks lm 0 targetOffset 0 $ \nlCount chunk ->
 >     return $ nlCount + fromIntegral (BS.count lfByte chunk)
-
-Count total lines in file.
-
-> countTotalLines :: LineMap      -- ^ The line map
->                 -> IO Integer   -- ^ Total number of lines
-> countTotalLines lm = do
->   let fileSize = lmFileSize lm
->   if fileSize == 0
->     then return 0
->     else do
->       (nlCount, endsWithNL) <- foldFileChunks lm 0 fileSize (0, False) processChunk
->       let lineCount = if endsWithNL then nlCount else nlCount + 1
->       return lineCount
->   where
->     processChunk (count, _) chunk =
->       let newCount = count + fromIntegral (BS.count lfByte chunk)
->           chunkEndsWithNL = not (BS.null chunk) && BS.last chunk == lfByte
->       in return (newCount, chunkEndsWithNL)
 
