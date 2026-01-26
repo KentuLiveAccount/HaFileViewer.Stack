@@ -623,32 +623,54 @@ Compute total lines from converged indexes.
 
 > computeTotalFromIndexes :: LineMap -> IO Integer
 > computeTotalFromIndexes lm = do
+>   idx <- readIORef (lmIndex lm)
 >   backIndexed <- readIORef (lmBackIndexed lm)
 >   lastBackOffset <- readIORef (lmBackOffset lm)
->   
->   if backIndexed == 0
+>
+>   -- Find the maximum forward line number in the index
+>   let forwardLines = [n | Forward n <- Map.elems idx]
+>       maxForwardLine = if null forwardLines then 0 else maximum forwardLines
+>
+>   -- Choose whichever index has progressed further
+>   if maxForwardLine >= backIndexed
 >     then do
->       -- No backward index yet, scan backward to EOF to build it
->       -- We need to scan enough to reach file start - use a large number
->       let fileSize = lmFileSize lm
->       -- Estimate: assume ~60 bytes per line average, so maxLines = fileSize / 60
->       let estimatedLines = max (fileSize `div` 60) 1000000
->       scanBackwardAndBuildIndex lm estimatedLines
->       -- After scanning, get the total from the backward index
->       backIndexed' <- readIORef (lmBackIndexed lm)
->       lastBackOffset' <- readIORef (lmBackOffset lm)
->       if lastBackOffset' == 0
->         then return backIndexed'  -- Reached file start
+>       -- Forward index is more complete - scan forward from the furthest point
+>       if maxForwardLine == 0
+>         then do
+>           -- No index at all, scan backward to EOF to build it
+>           let fileSize = lmFileSize lm
+>               estimatedLines = max (fileSize `div` 60) 1000000
+>           scanBackwardAndBuildIndex lm estimatedLines
+>           backIndexed' <- readIORef (lmBackIndexed lm)
+>           lastBackOffset' <- readIORef (lmBackOffset lm)
+>           if lastBackOffset' == 0
+>             then return backIndexed'
+>             else do
+>               linesFromStart <- countLinesUpTo lm lastBackOffset'
+>               return (linesFromStart + backIndexed')
 >         else do
->           -- Still didn't reach start, count remaining
->           linesFromStart <- countLinesUpTo lm lastBackOffset'
->           return (linesFromStart + backIndexed')
+>           -- Scan forward from maxForwardLine to EOF
+>           baseOffset <- findOrScanTo lm maxForwardLine
+>           remainingLines <- countLinesFrom lm baseOffset maxForwardLine
+>           return (maxForwardLine + remainingLines)
 >     else do
->       -- Count lines from start to the actual furthest scanned offset
+>       -- Backward index is more complete - count forward to meet it
 >       linesFromStart <- countLinesUpTo lm lastBackOffset
 >       -- Total = lines before scan point + lines scanned from EOF
 >       -- (no +1 needed because backIndexed already includes initial partial line if any)
 >       return (linesFromStart + backIndexed)
+
+Helper: Count lines from a known position to EOF.
+
+> countLinesFrom :: LineMap -> Offset -> Integer -> IO Integer
+> countLinesFrom lm startOffset startLine = do
+>   let iter = createLineIterator startOffset startLine
+>       loop it count = do
+>         (mbLine, it') <- nextLine lm it
+>         case mbLine of
+>           Nothing -> return count
+>           Just _  -> loop it' (count + 1)
+>   loop iter 0
 
 Count lines up to a given offset.
 
