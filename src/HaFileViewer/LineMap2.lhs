@@ -356,9 +356,9 @@ This provides a composable way to read lines without managing complex
 chunking logic. State is immutable and threaded explicitly.
 
 > data LineIterator = LineIterator
->   { liOffset  :: Offset         -- Current byte position in file
->   , liPartial :: BS.ByteString  -- Incomplete line from previous chunk
->   , liBuffer  :: [T.Text]       -- Buffered lines from last chunk read
+>   { liOffset  :: Offset            -- Current byte position in file
+>   , liPartial :: BS.ByteString     -- Incomplete line from previous chunk
+>   , liBuffer  :: [BS.ByteString]   -- Buffered lines from last chunk read (raw bytes)
 >   } deriving (Show)
 
 Create a new iterator starting at a given offset.
@@ -367,11 +367,11 @@ Create a new iterator starting at a given offset.
 >                    -> LineIterator   -- ^ New iterator at that position
 > createLineIterator offset = LineIterator offset BS.empty []
 
-Get the next line from the iterator, returning updated state.
+Get the next line from the iterator, returning updated state (raw ByteString).
 
 > nextLine :: LineMap       -- ^ The line map for file access
 >          -> LineIterator  -- ^ Current iterator state
->          -> IO (Maybe T.Text, LineIterator)  -- ^ Next line and new state
+>          -> IO (Maybe BS.ByteString, LineIterator)  -- ^ Next line (raw) and new state
 > nextLine lm iter@(LineIterator offset partial buffer) = do
 >   case buffer of
 >     (line:rest) -> 
@@ -385,7 +385,7 @@ Get the next line from the iterator, returning updated state.
 >           -- EOF - return final partial line if exists
 >           if BS.null partial
 >             then return (Nothing, iter)
->             else return (Just (normalizeLine $ decodeUtf8Lenient partial), 
+>             else return (Just partial,
 >                         iter { liPartial = BS.empty })
 >         else do
 >           -- Read and process next chunk
@@ -393,7 +393,7 @@ Get the next line from the iterator, returning updated state.
 >           chunk <- readAtOffsetLM lm offset readSize
 >           let pieces = BS.split lfByte chunk
 >               chunkEnded = (not (BS.null chunk)) && (BS.last chunk == lfByte)
->               (textsBS, newPartial) = case pieces of
+>               (rawLines, newPartial) = case pieces of
 >                 [] -> ([], partial)
 >                 [only] -> if chunkEnded
 >                             then ([BS.append partial only], BS.empty)
@@ -404,8 +404,7 @@ Get the next line from the iterator, returning updated state.
 >                               Nothing -> ([BS.append partial p], BS.empty)
 >                               Just (initPs, lastPs) ->
 >                                 ((BS.append partial p) : initPs, lastPs)
->               linesDecoded = map (normalizeLine . decodeUtf8Lenient) textsBS
->               newIter = LineIterator (offset + readSize) newPartial linesDecoded
+>               newIter = LineIterator (offset + readSize) newPartial rawLines
 >           nextLine lm newIter  -- Recursively get first line from new buffer
 
 Skip N lines efficiently using the iterator.
@@ -421,12 +420,12 @@ Skip N lines efficiently using the iterator.
 >     Nothing -> return iter'  -- Hit EOF
 >     Just _  -> skipLines lm iter' (n - 1)
 
-Collect N lines using the iterator.
+Collect N lines using the iterator, decoding to Text.
 
 > collectLines :: LineMap       -- ^ The line map for file access
 >              -> LineIterator  -- ^ Current iterator state
 >              -> Int           -- ^ Number of lines to collect
->              -> IO [T.Text]   -- ^ Collected lines
+>              -> IO [T.Text]   -- ^ Collected lines (decoded and normalized)
 > collectLines lm iter count = go iter count []
 >   where
 >     go _iter 0 acc = return (reverse acc)
@@ -434,7 +433,9 @@ Collect N lines using the iterator.
 >       (mbLine, newIter) <- nextLine lm curIter
 >       case mbLine of
 >         Nothing -> return (reverse acc)
->         Just line -> go newIter (n - 1) (line : acc)
+>         Just rawLine -> 
+>           let decodedLine = normalizeLine (decodeUtf8Lenient rawLine)
+>           in go newIter (n - 1) (decodedLine : acc)
 
 Scan lines from a given offset and return them as Text.
 
