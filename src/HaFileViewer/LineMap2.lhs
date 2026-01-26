@@ -290,7 +290,12 @@ Scan from a known offset/line to find the target line.
 
 Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 
-> recordForwardIndexEntries :: LineMap -> Integer -> [Int] -> Integer -> Offset -> IO ()
+> recordForwardIndexEntries :: LineMap   -- ^ The line map to update
+>                           -> Integer   -- ^ Index step K (record every K lines)
+>                           -> [Int]     -- ^ Byte positions of newlines in chunk
+>                           -> Integer   -- ^ Line number at start of chunk (0-based)
+>                           -> Offset    -- ^ Byte offset at start of chunk
+>                           -> IO ()
 > recordForwardIndexEntries lm k positions lineNum offset = do
 >   let recordIndex ln off =
 >         when (ln `mod` k == 0) $ do
@@ -301,7 +306,13 @@ Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 >                in recordIndex ln off)
 >         [0 .. length positions - 1]
 
-> scanToLine :: LineMap -> Offset -> Integer -> Integer -> IO Offset
+Scan from a known position to find a target line.
+
+> scanToLine :: LineMap    -- ^ The line map for file access and indexing
+>            -> Offset     -- ^ Starting byte offset (known position)
+>            -> Integer    -- ^ Line number at start offset (0-based)
+>            -> Integer    -- ^ Target line number to find (0-based)
+>            -> IO Offset  -- ^ Byte offset at start of target line
 > scanToLine lm startOffset startLine targetLine = do
 >   let k = fromIntegral (lmIndexStep lm)
 >       linesToScan = targetLine - startLine
