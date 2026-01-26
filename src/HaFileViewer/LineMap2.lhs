@@ -46,13 +46,17 @@ Line numbers can be counted from start (Forward) or end (Backward).
 
 Convert to absolute line number when total is known.
 
-> toAbsoluteLine :: Integer -> LineIndex -> Integer
+> toAbsoluteLine :: Integer    -- ^ Total number of lines in file
+>                -> LineIndex  -- ^ Line index (Forward or Backward)
+>                -> Integer    -- ^ Absolute line number (0-based)
 > toAbsoluteLine _total (Forward n)  = n
 > toAbsoluteLine total  (Backward n) = total - n
 
 Check if we can use this entry (Forward always usable, Backward only if total known).
 
-> isUsable :: Maybe Integer -> LineIndex -> Bool
+> isUsable :: Maybe Integer  -- ^ Total lines (if known)
+>          -> LineIndex      -- ^ Line index to check
+>          -> Bool           -- ^ Whether the index is usable
 > isUsable _         (Forward _)  = True
 > isUsable (Just _)  (Backward _) = True
 > isUsable Nothing   (Backward _) = False
@@ -93,7 +97,11 @@ Default chunk size for sequential scanning.
 Public API
 ----------
 
-> openLineMap :: FilePath -> Int -> IO LineMap
+Open a file and create a LineMap for efficient line-based access.
+
+> openLineMap :: FilePath  -- ^ Path to the file to open
+>             -> Int       -- ^ Index step (lines between index points)
+>             -> IO LineMap  -- ^ Initialized line map
 > openLineMap path k = do
 >   fileSize <- withFile path ReadMode (fmap fromIntegral . hFileSize)
 >   let winSize = min windowSizeDefault fileSize
@@ -109,7 +117,10 @@ Public API
 >   backOffsetRef <- newIORef fileSize  -- Will be updated on first backward scan
 >   return $ LineMap path fileSize windowSizeDefault winRef k indexRef totalRef backIndexedRef backOffsetRef
 
-> closeLineMap :: LineMap -> IO ()
+Close a LineMap and release resources.
+
+> closeLineMap :: LineMap  -- ^ The line map to close
+>              -> IO ()
 > closeLineMap _lm = return ()
 
 Main API function.
@@ -119,7 +130,11 @@ Negative Indexing Helpers
 
 Convert negative index to positive using cached total and retrieve lines.
 
-> handleNegativeWithCache :: LineMap -> Integer -> Int -> Integer -> IO [T.Text]
+> handleNegativeWithCache :: LineMap   -- ^ The line map
+>                         -> Integer   -- ^ Negative start index
+>                         -> Int       -- ^ Number of lines to read
+>                         -> Integer   -- ^ Cached total line count
+>                         -> IO [T.Text]  -- ^ Retrieved lines
 > handleNegativeWithCache lm start count total = do
 >   let startPos = max 0 (total + start)
 >       k = fromIntegral (lmIndexStep lm)
@@ -129,7 +144,11 @@ Convert negative index to positive using cached total and retrieve lines.
 
 Handle case where backward scan reached file start (total is now known).
 
-> handleNegativeReachedStart :: LineMap -> Integer -> Int -> Integer -> IO [T.Text]
+> handleNegativeReachedStart :: LineMap   -- ^ The line map
+>                            -> Integer   -- ^ Negative start index
+>                            -> Int       -- ^ Number of lines to read
+>                            -> Integer   -- ^ Computed total line count
+>                            -> IO [T.Text]  -- ^ Retrieved lines
 > handleNegativeReachedStart lm start count total = do
 >   writeIORef (lmTotalLines lm) (Just total)
 >   let startPos = max 0 (total + start)
@@ -140,7 +159,12 @@ Handle case where backward scan reached file start (total is now known).
 
 Handle case where total must be computed from partial indexes.
 
-> handleNegativeComputeTotal :: LineMap -> Integer -> Int -> Integer -> Integer -> IO [T.Text]
+> handleNegativeComputeTotal :: LineMap   -- ^ The line map
+>                            -> Integer   -- ^ Negative start index
+>                            -> Int       -- ^ Number of lines to read
+>                            -> Integer   -- ^ Absolute value of start (lines from end)
+>                            -> Integer   -- ^ Lines scanned backward so far
+>                            -> IO [T.Text]  -- ^ Retrieved lines
 > handleNegativeComputeTotal lm start count linesFromEnd backLinesScanned = do
 >   let k = fromIntegral (lmIndexStep lm)
 >   if backLinesScanned < k
@@ -153,15 +177,15 @@ Handle case where total must be computed from partial indexes.
 >       baseOffset <- findOrScanTo lm baseLine
 >       scanLinesFromOffset lm baseOffset baseLine startPos count
 
-Main Entry Point
-----------------
-
 Positive Indexing Helper
 -------------------------
 
 Handle forward/positive indexing - find K-boundary and scan forward.
 
-> handlePositiveIndex :: LineMap -> Integer -> Int -> IO [T.Text]
+> handlePositiveIndex :: LineMap   -- ^ The line map
+>                     -> Integer   -- ^ Starting line (0-based)
+>                     -> Int       -- ^ Number of lines to read
+>                     -> IO [T.Text]  -- ^ Retrieved lines
 > handlePositiveIndex lm start count = do
 >   let k = fromIntegral (lmIndexStep lm)
 >       baseLine = (start `div` k) * k
@@ -211,10 +235,18 @@ Helper: Windowed Memory Mapping
 
 Wrapper functions that use the common utilities with LineMap fields.
 
-> ensureMappedLM :: LineMap -> Offset -> Integer -> IO ()
+> ensureMappedLM :: LineMap   -- ^ The line map
+>                -> Offset    -- ^ Offset to ensure is mapped
+>                -> Integer   -- ^ Number of bytes to ensure are mapped
+>                -> IO ()
 > ensureMappedLM lm = ensureMapped (lmPath lm) (lmFileSize lm) (lmWindowSize lm) (lmWindow lm)
 
-> readAtOffsetLM :: LineMap -> Offset -> Integer -> IO BS.ByteString
+Read bytes at a specific offset, handling window remapping if needed.
+
+> readAtOffsetLM :: LineMap    -- ^ The line map
+>                -> Offset     -- ^ Starting offset to read from
+>                -> Integer    -- ^ Number of bytes to read
+>                -> IO BS.ByteString  -- ^ The bytes read
 > readAtOffsetLM lm = readAtOffset (lmPath lm) (lmFileSize lm) (lmWindowSize lm) (lmWindow lm)
 
 Core Index Operations
@@ -222,7 +254,9 @@ Core Index Operations
 
 Find or scan to a target line, returning the byte offset.
 
-> findOrScanTo :: LineMap -> Integer -> IO Offset
+> findOrScanTo :: LineMap   -- ^ The line map
+>              -> Integer   -- ^ Target line number (0-based)
+>              -> IO Offset  -- ^ Byte offset at start of target line
 > findOrScanTo lm targetLine
 >   | targetLine == 0 = return 0
 >   | otherwise = do
@@ -318,12 +352,15 @@ chunking logic. State is immutable and threaded explicitly.
 
 Create a new iterator starting at a given offset.
 
-> createLineIterator :: Offset -> LineIterator
+> createLineIterator :: Offset         -- ^ Starting byte offset in file
+>                    -> LineIterator   -- ^ New iterator at that position
 > createLineIterator offset = LineIterator offset BS.empty []
 
 Get the next line from the iterator, returning updated state.
 
-> nextLine :: LineMap -> LineIterator -> IO (Maybe T.Text, LineIterator)
+> nextLine :: LineMap       -- ^ The line map for file access
+>          -> LineIterator  -- ^ Current iterator state
+>          -> IO (Maybe T.Text, LineIterator)  -- ^ Next line and new state
 > nextLine lm iter@(LineIterator offset partial buffer) = do
 >   case buffer of
 >     (line:rest) -> 
@@ -362,7 +399,10 @@ Get the next line from the iterator, returning updated state.
 
 Skip N lines efficiently using the iterator.
 
-> skipLines :: LineMap -> LineIterator -> Int -> IO LineIterator
+> skipLines :: LineMap       -- ^ The line map for file access
+>           -> LineIterator  -- ^ Current iterator state
+>           -> Int           -- ^ Number of lines to skip
+>           -> IO LineIterator  -- ^ Updated iterator after skipping
 > skipLines _lm iter 0 = return iter
 > skipLines lm iter n = do
 >   (mbLine, iter') <- nextLine lm iter
@@ -372,7 +412,10 @@ Skip N lines efficiently using the iterator.
 
 Collect N lines using the iterator.
 
-> collectLines :: LineMap -> LineIterator -> Int -> IO [T.Text]
+> collectLines :: LineMap       -- ^ The line map for file access
+>              -> LineIterator  -- ^ Current iterator state
+>              -> Int           -- ^ Number of lines to collect
+>              -> IO [T.Text]   -- ^ Collected lines
 > collectLines lm iter count = go iter count []
 >   where
 >     go _iter 0 acc = return (reverse acc)
@@ -408,7 +451,9 @@ Backward Scanning
 
 Scan backward from EOF to build Backward index entries.
 
-> scanBackwardAndBuildIndex :: LineMap -> Integer -> IO ()
+> scanBackwardAndBuildIndex :: LineMap   -- ^ The line map
+>                           -> Integer   -- ^ Target lines from end to scan
+>                           -> IO ()
 > scanBackwardAndBuildIndex lm targetLinesFromEnd = do
 >   backLinesScanned <- readIORef (lmBackIndexed lm)
 >   when (backLinesScanned < targetLinesFromEnd) $ do
@@ -471,7 +516,8 @@ Scan backward from EOF to build Backward index entries.
 
 Count how many backward lines have been scanned.
 
-> countBackwardLines :: LineMap -> IO Integer
+> countBackwardLines :: LineMap      -- ^ The line map
+>                    -> IO Integer   -- ^ Number of lines scanned from end
 > countBackwardLines lm = do
 >   idx <- readIORef (lmIndex lm)
 >   let backwardEntries = [n | Backward n <- Map.elems idx]
@@ -479,7 +525,10 @@ Count how many backward lines have been scanned.
 
 Extract lines directly from backward scan without computing total.
 
-> extractLinesFromBackwardScan :: LineMap -> Integer -> Int -> IO [T.Text]
+> extractLinesFromBackwardScan :: LineMap      -- ^ The line map
+>                              -> Integer      -- ^ Lines from end to start
+>                              -> Int          -- ^ Number of lines to extract
+>                              -> IO [T.Text]  -- ^ Extracted lines
 > extractLinesFromBackwardScan lm linesFromEnd count = do
 >   let fileSize = lmFileSize lm
 >       chunkSize = scanChunkSizeDefault
@@ -519,7 +568,8 @@ Convergence Detection
 
 Check if forward and backward indexes have converged.
 
-> checkAndMergeIndexes :: LineMap -> IO ()
+> checkAndMergeIndexes :: LineMap  -- ^ The line map
+>                      -> IO ()
 > checkAndMergeIndexes lm = do
 >   cachedTotal <- readIORef (lmTotalLines lm)
 >   case cachedTotal of
@@ -583,14 +633,17 @@ materializing an intermediate list. It's used by multiple counting functions.
 
 Count lines up to a given offset.
 
-> countLinesUpTo :: LineMap -> Offset -> IO Integer
+> countLinesUpTo :: LineMap      -- ^ The line map
+>                -> Offset       -- ^ Target offset to count up to
+>                -> IO Integer   -- ^ Number of newlines up to offset
 > countLinesUpTo lm targetOffset =
 >   foldFileChunks lm 0 targetOffset 0 $ \nlCount chunk ->
 >     return $ nlCount + fromIntegral (BS.count lfByte chunk)
 
 Count total lines in file.
 
-> countTotalLines :: LineMap -> IO Integer
+> countTotalLines :: LineMap      -- ^ The line map
+>                 -> IO Integer   -- ^ Total number of lines
 > countTotalLines lm = do
 >   let fileSize = lmFileSize lm
 >   if fileSize == 0
