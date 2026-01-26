@@ -329,18 +329,18 @@ Scan from a known position to find a target line.
 >                 chunk <- readAtOffsetLM lm offset readSize
 >                 let positions = BS.elemIndices lfByte chunk
 >                     linesInChunk = length positions
->                 
+>
+>                 -- Record index entries at K boundaries
+>                 recordForwardIndexEntries lm k positions lineNum offset
+>
 >                 if linesInChunk >= fromIntegral linesLeft
 >                   then do
 >                     -- Target is in this chunk
 >                     let targetPos = positions !! (fromIntegral linesLeft - 1)
 >                         finalOffset = offset + fromIntegral targetPos + 1
->                     -- Record index entries at K boundaries
->                     recordForwardIndexEntries lm k positions lineNum offset
 >                     return finalOffset
 >                   else do
 >                     -- Keep scanning
->                     recordForwardIndexEntries lm k positions lineNum offset
 >                     let newOffset = offset + fromIntegral (BS.length chunk)
 >                         newLineNum = lineNum + fromIntegral linesInChunk
 >                         newLinesLeft = linesLeft - fromIntegral linesInChunk
