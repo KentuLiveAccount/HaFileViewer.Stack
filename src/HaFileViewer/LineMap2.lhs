@@ -26,7 +26,7 @@ Module Header
 > import System.IO.MMap (mmapFileByteString)
 > import System.IO (withFile, IOMode(..), hFileSize)
 > import Data.IORef
-> import Control.Monad (when)
+> import Control.Monad (when, unless)
 > import HaFileViewer.LineMap.Common
 >   ( Offset
 >   , lfByte
@@ -297,14 +297,16 @@ Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 >                           -> Offset    -- ^ Byte offset at start of chunk
 >                           -> IO ()
 > recordForwardIndexEntries lm k positions lineNum offset = do
->   let recordIndex ln off =
->         when (ln `mod` k == 0) $ do
->           modifyIORef' (lmIndex lm) (Map.insert off (Forward ln))
->   mapM_ (\i -> let pos = positions !! i
->                    ln = lineNum + fromIntegral i + 1
->                    off = offset + fromIntegral pos + 1
->                in recordIndex ln off)
->         [0 .. length positions - 1]
+>   -- Build list of (offset, lineIndex) pairs for K-boundaries
+>   let entries = [(off, Forward ln)
+>                 | i <- [0 .. length positions - 1]
+>                 , let pos = positions !! i
+>                       ln = lineNum + fromIntegral i + 1
+>                       off = offset + fromIntegral pos + 1
+>                 , ln `mod` k == 0]
+>   -- Insert all entries in one batch operation
+>   unless (null entries) $
+>     modifyIORef' (lmIndex lm) (Map.union (Map.fromList entries))
 
 Scan from a known position to find a target line.
 
