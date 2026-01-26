@@ -371,24 +371,26 @@ chunking logic. State is immutable and threaded explicitly.
 >   { liOffset  :: Offset            -- Current byte position in file
 >   , liPartial :: BS.ByteString     -- Incomplete line from previous chunk
 >   , liBuffer  :: [BS.ByteString]   -- Buffered lines from last chunk read (raw bytes)
+>   , liLineNum :: Integer           -- Current line number (0-based)
 >   } deriving (Show)
 
-Create a new iterator starting at a given offset.
+Create a new iterator starting at a given offset and line number.
 
 > createLineIterator :: Offset         -- ^ Starting byte offset in file
+>                    -> Integer        -- ^ Starting line number (0-based)
 >                    -> LineIterator   -- ^ New iterator at that position
-> createLineIterator offset = LineIterator offset BS.empty []
+> createLineIterator offset lineNum = LineIterator offset BS.empty [] lineNum
 
 Get the next line from the iterator, returning updated state (raw ByteString).
 
 > nextLine :: LineMap       -- ^ The line map for file access
 >          -> LineIterator  -- ^ Current iterator state
 >          -> IO (Maybe BS.ByteString, LineIterator)  -- ^ Next line (raw) and new state
-> nextLine lm iter@(LineIterator offset partial buffer) = do
+> nextLine lm iter@(LineIterator offset partial buffer lineNum) = do
 >   case buffer of
 >     (line:rest) -> 
 >       -- Return buffered line
->       return (Just line, iter { liBuffer = rest })
+>       return (Just line, iter { liBuffer = rest, liLineNum = lineNum + 1 })
 >     [] -> do
 >       -- Buffer empty, read next chunk
 >       let fileSize = lmFileSize lm
@@ -398,7 +400,7 @@ Get the next line from the iterator, returning updated state (raw ByteString).
 >           if BS.null partial
 >             then return (Nothing, iter)
 >             else return (Just partial,
->                         iter { liPartial = BS.empty })
+>                         iter { liPartial = BS.empty, liLineNum = lineNum + 1 })
 >         else do
 >           -- Read and process next chunk
 >           let readSize = min scanChunkSizeDefault (fileSize - offset)
@@ -416,7 +418,13 @@ Get the next line from the iterator, returning updated state (raw ByteString).
 >                               Nothing -> ([BS.append partial p], BS.empty)
 >                               Just (initPs, lastPs) ->
 >                                 ((BS.append partial p) : initPs, lastPs)
->               newIter = LineIterator (offset + readSize) newPartial rawLines
+>           
+>           -- Build index entries for K-boundaries in this chunk
+>           let k = fromIntegral (lmIndexStep lm)
+>               positions = BS.elemIndices lfByte chunk
+>           recordForwardIndexEntries lm k positions lineNum offset
+>           
+>           let newIter = LineIterator (offset + readSize) newPartial rawLines lineNum
 >           nextLine lm newIter  -- Recursively get first line from new buffer
 
 Skip N lines efficiently using the iterator.
@@ -465,7 +473,7 @@ byte offset and line number. It handles:
 >                     -> Int        -- ^ Number of lines to read
 >                     -> IO [T.Text]  -- ^ List of text lines (without newlines)
 > scanLinesFromOffset lm startOffset startLine targetLine count = do
->   let iter0 = createLineIterator startOffset
+>   let iter0 = createLineIterator startOffset startLine
 >       skipCount = fromIntegral (targetLine - startLine)
 >   iter1 <- skipLines lm iter0 skipCount
 >   collectLines lm iter1 count
