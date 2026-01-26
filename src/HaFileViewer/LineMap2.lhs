@@ -308,6 +308,17 @@ Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 
 Scan from a known position to find a target line.
 
+Helper: Try to get element at index N, or return count if list too short.
+
+> dropAndCountOrGet :: Int      -- ^ Index to retrieve (0-based)
+>                   -> [a]       -- ^ List to traverse
+>                   -> Either Int a  -- ^ Left = list length, Right = element at index
+> dropAndCountOrGet n xs = go n 0 xs
+>   where
+>     go 0 _ (y:_)  = Right y           -- Found target element
+>     go i count (y:ys) = go (i-1) (count+1) ys  -- Keep counting and skipping
+>     go _ count []     = Left count    -- Ran out, return count so far
+
 > scanToLine :: LineMap    -- ^ The line map for file access and indexing
 >            -> Offset     -- ^ Starting byte offset (known position)
 >            -> Integer    -- ^ Line number at start offset (0-based)
@@ -328,19 +339,18 @@ Scan from a known position to find a target line.
 >               else do
 >                 chunk <- readAtOffsetLM lm offset readSize
 >                 let positions = BS.elemIndices lfByte chunk
->                     linesInChunk = length positions
 >
 >                 -- Record index entries at K boundaries
 >                 recordForwardIndexEntries lm k positions lineNum offset
 >
->                 if linesInChunk >= fromIntegral linesLeft
->                   then
+>                 -- Try to get target position, or get count if not enough lines
+>                 case dropAndCountOrGet (fromIntegral linesLeft - 1) positions of
+>                   Right targetPos ->
 >                     -- Target is in this chunk
->                     let targetPos = positions !! (fromIntegral linesLeft - 1)
->                         finalOffset = offset + fromIntegral targetPos + 1
+>                     let finalOffset = offset + fromIntegral targetPos + 1
 >                     in return finalOffset
->                   else
->                     -- Keep scanning
+>                   Left linesInChunk ->
+>                     -- Not enough lines in this chunk, keep scanning
 >                     let newOffset = offset + fromIntegral (BS.length chunk)
 >                         newLineNum = lineNum + fromIntegral linesInChunk
 >                         newLinesLeft = linesLeft - fromIntegral linesInChunk
