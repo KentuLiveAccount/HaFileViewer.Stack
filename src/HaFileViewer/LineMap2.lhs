@@ -334,17 +334,17 @@ Scan from a known position to find a target line.
 >                 recordForwardIndexEntries lm k positions lineNum offset
 >
 >                 if linesInChunk >= fromIntegral linesLeft
->                   then do
+>                   then
 >                     -- Target is in this chunk
 >                     let targetPos = positions !! (fromIntegral linesLeft - 1)
 >                         finalOffset = offset + fromIntegral targetPos + 1
->                     return finalOffset
->                   else do
+>                     in return finalOffset
+>                   else
 >                     -- Keep scanning
 >                     let newOffset = offset + fromIntegral (BS.length chunk)
 >                         newLineNum = lineNum + fromIntegral linesInChunk
 >                         newLinesLeft = linesLeft - fromIntegral linesInChunk
->                     loop newOffset newLineNum newLinesLeft
+>                     in loop newOffset newLineNum newLinesLeft
 >   
 >   loop startOffset startLine linesToScan
 
