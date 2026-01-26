@@ -1,0 +1,82 @@
+Stateful Line Iterator Design
+==============================
+
+Data Structure
+--------------
+data LineIterator = LineIterator
+  { liLineMap   :: LineMap              -- File access
+  , liOffset    :: IORef Offset         -- Current position in file
+  , liPartial   :: IORef BS.ByteString  -- Incomplete line from previous read
+  , liBuffer    :: IORef [T.Text]       -- Pooled lines from last chunk
+  }
+
+API Functions
+-------------
+
+-- Create a new iterator starting at an offset
+createLineIterator :: LineMap -> Offset -> IO LineIterator
+
+-- Get the next line (returns Nothing at EOF)
+nextLine :: LineIterator -> IO (Maybe T.Text)
+
+-- Peek at next line without consuming it
+peekLine :: LineIterator -> IO (Maybe T.Text)
+
+-- Skip N lines efficiently
+skipLines :: LineIterator -> Int -> IO ()
+
+
+Usage Example
+-------------
+-- Current scanLinesFromOffset:
+scanLinesFromOffset lm baseOffset baseLine targetLine count = ...
+
+-- Using iterator:
+scanLinesFromOffset lm baseOffset baseLine targetLine count = do
+  iter <- createLineIterator lm baseOffset
+  skipLines iter (fromIntegral (targetLine - baseLine))
+  replicateM count (nextLine iter) >>= return . catMaybes
+
+
+How nextLine Works
+------------------
+nextLine iter = do
+  -- Check buffer first
+  buffer <- readIORef (liBuffer iter)
+  case buffer of
+    (line:rest) -> do
+      -- Return buffered line
+      writeIORef (liBuffer iter) rest
+      return (Just line)
+    [] -> do
+      -- Buffer empty, read next chunk
+      offset <- readIORef (liOffset iter)
+      partial <- readIORef (liPartial iter)
+      
+      if offset >= fileSize
+        then do
+          -- EOF - return final partial if exists
+          if BS.null partial 
+            then return Nothing
+            else do
+              writeIORef (liPartial iter) BS.empty
+              return (Just (decodeUtf8Lenient partial))
+        else do
+          -- Read chunk, split into lines, update state
+          chunk <- readAtOffset... offset chunkSize
+          let (completed, newPartial) = splitLines partial chunk
+          writeIORef (liBuffer iter) (tail completed)
+          writeIORef (liPartial iter) newPartial
+          writeIORef (liOffset iter) (offset + chunkSize)
+          return (Just (head completed))
+
+
+Advantages
+----------
+✅ Clean separation: iterator handles chunking, caller handles logic
+✅ Constant memory: only one chunk buffered
+✅ Reusable: skipLines, peekLine, etc. can be added
+✅ Composable: can pass iterator around
+✅ Explicit I/O: no lazy evaluation surprises
+
+Should we implement this?

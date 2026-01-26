@@ -1,0 +1,27 @@
+-- Current design: Does both skipping and collecting
+scanLinesFromOffset :: LineMap -> Offset -> Integer -> Integer -> Int -> IO [T.Text]
+--                     ^          ^         ^          ^          ^      Result
+--                     LineMap    BytePos   StartLine  TargetLine Count  
+
+-- Alternative 1: General line streamer, caller controls skipping
+streamLinesFrom :: LineMap -> Offset -> IO [T.Text]  -- Returns ALL lines from offset
+-- Caller does: drop skipCount (take totalCount (streamLinesFrom lm offset))
+
+-- Alternative 2: Stateful iterator
+data LineIterator
+createIterator :: LineMap -> Offset -> IO LineIterator
+nextLine :: LineIterator -> IO (Maybe T.Text)
+-- Caller manually skips N, then takes M
+
+-- Alternative 3: Fold over lines with early termination
+foldLinesFrom :: LineMap -> Offset -> s -> (s -> T.Text -> IO (Either s s)) -> IO s
+--                                           ^     ^        ^
+--                                           state line     Left=continue, Right=done
+
+-- Alternative 4: Callback-based (like your idea?)
+processLinesFrom :: LineMap -> Offset -> (T.Text -> IO Bool) -> IO ()
+--                                       ^           ^
+--                                       line        True=continue, False=stop
+-- Caller skips first N by returning True, then processes M
+
+Which direction are you thinking?

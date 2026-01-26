@@ -1,0 +1,65 @@
+Alternative 1: streamLinesFrom Design
+======================================
+
+OPTION A: Strict (materializes entire list in memory)
+------------------------------------------------------
+streamLinesFrom :: LineMap -> Offset -> IO [T.Text]
+
+Usage:
+  allLines <- streamLinesFrom lm offset
+  let result = take count (drop skipCount allLines)
+
+PROBLEM: For a 10GB file with millions of lines, this loads 
+everything into memory before drop/take can filter!
+
+PROS: Simple, pure list operations
+CONS: Memory explosion, not truly streaming
+
+
+OPTION B: Lazy I/O (incremental evaluation)
+--------------------------------------------
+streamLinesFrom :: LineMap -> Offset -> IO [T.Text]
+-- Implemented with unsafeInterleaveIO
+
+Usage:
+  allLines <- streamLinesFrom lm offset
+  let result = take count (drop skipCount allLines)  -- Only reads what's needed!
+
+PROS: Truly lazy, only reads chunks as needed
+CONS: 
+  - Unpredictable I/O timing
+  - Can leak file handles
+  - Errors happen at strange times
+  - Generally discouraged in modern Haskell
+
+
+OPTION C: Controlled lazy (explicit chunk producer)
+----------------------------------------------------
+streamLinesFrom :: LineMap -> Offset -> Producer T.Text IO ()
+-- Uses 'pipes' or 'conduit' library
+
+Usage:
+  runEffect $ streamLinesFrom lm offset 
+          >-> P.drop skipCount 
+          >-> P.take count 
+          >-> toListM
+
+PROS: Streaming with resource safety
+CONS: Requires external library dependency
+
+
+RECOMMENDATION: Keep current design
+------------------------------------
+scanLinesFromOffset :: LineMap -> Offset -> Integer -> Integer -> Int -> IO [T.Text]
+
+PROS:
+  - Truly constant memory (streams without materializing)
+  - No lazy I/O issues
+  - No external dependencies
+  - Explicit control (caller specifies exactly what they want)
+  
+The current signature is actually more efficient because it never
+creates intermediate structures that get filtered away.
+
+Do you still want to explore Alternative 1, or does this analysis
+help clarify why the current design is actually good?

@@ -302,6 +302,85 @@ Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 >                     loop newOffset newLineNum newLinesLeft
 >   
 >   loop startOffset startLine linesToScan
+
+Line Iterator - Explicit State Passing
+---------------------------------------
+
+Stateful iterator for reading lines sequentially with explicit state.
+This provides a composable way to read lines without managing complex
+chunking logic. State is immutable and threaded explicitly.
+
+> data LineIterator = LineIterator
+>   { liOffset  :: Offset         -- Current byte position in file
+>   , liPartial :: BS.ByteString  -- Incomplete line from previous chunk
+>   , liBuffer  :: [T.Text]       -- Buffered lines from last chunk read
+>   } deriving (Show)
+
+Create a new iterator starting at a given offset.
+
+> createLineIterator :: Offset -> LineIterator
+> createLineIterator offset = LineIterator offset BS.empty []
+
+Get the next line from the iterator, returning updated state.
+
+> nextLine :: LineMap -> LineIterator -> IO (Maybe T.Text, LineIterator)
+> nextLine lm iter@(LineIterator offset partial buffer) = do
+>   case buffer of
+>     (line:rest) -> 
+>       -- Return buffered line
+>       return (Just line, iter { liBuffer = rest })
+>     [] -> do
+>       -- Buffer empty, read next chunk
+>       let fileSize = lmFileSize lm
+>       if offset >= fileSize
+>         then 
+>           -- EOF - return final partial line if exists
+>           if BS.null partial
+>             then return (Nothing, iter)
+>             else return (Just (normalizeLine $ decodeUtf8Lenient partial), 
+>                         iter { liPartial = BS.empty })
+>         else do
+>           -- Read and process next chunk
+>           let readSize = min scanChunkSizeDefault (fileSize - offset)
+>           chunk <- readAtOffsetLM lm offset readSize
+>           let pieces = BS.split lfByte chunk
+>               chunkEnded = (not (BS.null chunk)) && (BS.last chunk == lfByte)
+>               (textsBS, newPartial) = case pieces of
+>                 [] -> ([], partial)
+>                 [only] -> if chunkEnded
+>                             then ([BS.append partial only], BS.empty)
+>                             else ([], BS.append partial only)
+>                 (p:ps) -> if chunkEnded
+>                             then ((BS.append partial p) : ps, BS.empty)
+>                             else case unsnoc ps of
+>                               Nothing -> ([BS.append partial p], BS.empty)
+>                               Just (initPs, lastPs) ->
+>                                 ((BS.append partial p) : initPs, lastPs)
+>               linesDecoded = map (normalizeLine . decodeUtf8Lenient) textsBS
+>               newIter = LineIterator (offset + readSize) newPartial linesDecoded
+>           nextLine lm newIter  -- Recursively get first line from new buffer
+
+Skip N lines efficiently using the iterator.
+
+> skipLines :: LineMap -> LineIterator -> Int -> IO LineIterator
+> skipLines _lm iter 0 = return iter
+> skipLines lm iter n = do
+>   (mbLine, iter') <- nextLine lm iter
+>   case mbLine of
+>     Nothing -> return iter'  -- Hit EOF
+>     Just _  -> skipLines lm iter' (n - 1)
+
+Collect N lines using the iterator.
+
+> collectLines :: LineMap -> LineIterator -> Int -> IO [T.Text]
+> collectLines lm iter count = go iter count []
+>   where
+>     go _iter 0 acc = return (reverse acc)
+>     go curIter n acc = do
+>       (mbLine, newIter) <- nextLine lm curIter
+>       case mbLine of
+>         Nothing -> return (reverse acc)
+>         Just line -> go newIter (n - 1) (line : acc)
 
 Scan lines from a given offset and return them as Text.
 
@@ -319,49 +398,10 @@ byte offset and line number. It handles:
 >                     -> Int        -- ^ Number of lines to read
 >                     -> IO [T.Text]  -- ^ List of text lines (without newlines)
 > scanLinesFromOffset lm startOffset startLine targetLine count = do
->   let fileSize = lmFileSize lm
->       chunkSize = scanChunkSizeDefault
-
->       go curLine acc remaining partial offset = do
->         if remaining <= 0 then return acc
->         else do
->           let bytesRemaining = fileSize - offset
->           if bytesRemaining <= 0
->             then do
->               let includePartial = (not (BS.null partial)) && (curLine >= targetLine) && (remaining > 0)
->                   acc' = if includePartial then acc ++ [decodeUtf8Lenient partial] else acc
->               return acc'
->             else do
->               let readSize = min chunkSize bytesRemaining
->               chunk <- readAtOffsetLM lm offset readSize
->               let pieces = BS.split lfByte chunk
->                   chunkEnded = (not (BS.null chunk)) && (BS.last chunk == lfByte)
->               let (textsBS, newPartial) = case pieces of
->                     [] -> ([], partial)
->                     [only] -> if chunkEnded
->                                 then ([BS.append partial only], BS.empty)
->                                 else ([], BS.append partial only)
->                     (p:ps) -> if chunkEnded
->                                 then ((BS.append partial p) : ps, BS.empty)
->                                 else case unsnoc ps of
->                                   Nothing -> ([BS.append partial p], BS.empty)
->                                   Just (initPs, lastPs) -> 
->                                     ((BS.append partial p) : initPs, lastPs)
->                   texts = map decodeUtf8Lenient textsBS
->                   numNew = length texts
->               let allLines = texts
->                   needed = remaining
->                   toTake = take needed (drop (fromIntegral (targetLine - curLine)) allLines)
->                   acc' = acc ++ map normalizeLine toTake
->               if length toTake >= needed
->                 then return acc'
->                 else do
->                   let newCur = curLine + fromIntegral numNew
->                       newRemaining = remaining - length toTake
->                       newOffset = offset + fromIntegral readSize
->                   go newCur acc' newRemaining newPartial newOffset
-
->   go startLine [] count BS.empty startOffset
+>   let iter0 = createLineIterator startOffset
+>       skipCount = fromIntegral (targetLine - startLine)
+>   iter1 <- skipLines lm iter0 skipCount
+>   collectLines lm iter1 count
 
 Backward Scanning
 -----------------

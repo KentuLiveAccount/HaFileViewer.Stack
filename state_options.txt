@@ -1,0 +1,84 @@
+State Management Alternatives
+==============================
+
+Option 1: IORef (Mutable State)
+--------------------------------
+data LineIterator = LineIterator
+  { liLineMap :: LineMap
+  , liOffset  :: IORef Offset       -- MUTABLE
+  , liPartial :: IORef BS.ByteString -- MUTABLE
+  , liBuffer  :: IORef [T.Text]      -- MUTABLE
+  }
+
+nextLine :: LineIterator -> IO (Maybe T.Text)
+-- Iterator is modified in place
+
+Usage:
+  iter <- createIterator lm offset
+  line1 <- nextLine iter  -- iter is mutated
+  line2 <- nextLine iter  -- iter is mutated
+  line3 <- nextLine iter  -- iter is mutated
+
+
+Option 2: Explicit State (Immutable)
+-------------------------------------
+data LineIterator = LineIterator
+  { liOffset  :: Offset        -- IMMUTABLE
+  , liPartial :: BS.ByteString -- IMMUTABLE
+  , liBuffer  :: [T.Text]       -- IMMUTABLE
+  }
+
+nextLine :: LineMap -> LineIterator -> IO (Maybe T.Text, LineIterator)
+--                     ^               ^                   ^
+--                     in state        result              NEW state
+
+Usage:
+  let iter0 = LineIterator offset0 BS.empty []
+  (line1, iter1) <- nextLine lm iter0  -- Returns new state
+  (line2, iter2) <- nextLine lm iter1  -- Thread state through
+  (line3, iter3) <- nextLine lm iter2
+
+
+Option 3: State Monad (Functional State Threading)
+---------------------------------------------------
+type LineReader a = StateT LineIterator IO a
+
+nextLine :: LineMap -> LineReader (Maybe T.Text)
+
+Usage:
+  let iter0 = LineIterator offset0 BS.empty []
+  (lines, finalState) <- runStateT action iter0
+    where
+      action = replicateM 3 (nextLine lm)
+
+
+Comparison
+----------
+                    IORef         Explicit State    StateT
+Mutability          Mutable       Immutable        Immutable
+Threading           Implicit      Manual           Automatic
+Clarity             Medium        High             Medium
+Complexity          Low           Low              Medium
+Type safety         Medium        High             High
+Recommended?        ❌            ✅                ✅
+
+BEST CHOICE: Option 2 (Explicit State)
+---------------------------------------
+Reasons:
+- ✅ Pure functional approach (immutable data)
+- ✅ Clear state flow (can see what changes)
+- ✅ No hidden mutations
+- ✅ Easy to test (pure functions)
+- ✅ Caller controls state threading
+- ✅ No need to learn State monad
+
+Example implementation:
+  nextLine lm iter@(LineIterator offset partial buffer) = do
+    case buffer of
+      (line:rest) -> return (Just line, iter { liBuffer = rest })
+      [] -> do
+        -- Read next chunk, update all fields
+        ...
+        return (result, LineIterator newOffset newPartial newBuffer)
+
+Want to see a full implementation?

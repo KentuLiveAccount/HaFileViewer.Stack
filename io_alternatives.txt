@@ -1,0 +1,98 @@
+IO-Compatible Alternatives
+===========================
+
+Alternative 2: Iterator Pattern
+--------------------------------
+data LineIterator = LineIterator 
+  { itLineMap :: LineMap
+  , itOffset :: IORef Offset
+  , itPartial :: IORef BS.ByteString
+  }
+
+createIterator :: LineMap -> Offset -> IO LineIterator
+nextLine :: LineIterator -> IO (Maybe T.Text)
+
+Usage:
+  iter <- createIterator lm offset
+  -- Skip first N lines
+  replicateM_ skipCount (nextLine iter)
+  -- Collect M lines
+  result <- replicateM count (nextLine iter)
+
+PROS:
+  ✅ Truly streaming (constant memory)
+  ✅ Predictable I/O (explicit calls)
+  ✅ Composable (can stop/resume anytime)
+  ✅ Familiar pattern (like file handles)
+
+CONS:
+  ❌ Stateful (mutable iterator)
+  ❌ More complex implementation
+  ❌ Must manage iterator lifecycle
+
+
+Alternative 3: Fold with Early Termination
+-------------------------------------------
+foldLinesFrom :: LineMap -> Offset -> s 
+              -> (s -> T.Text -> IO (Either s s)) 
+              -> IO s
+--                                    ^      ^
+--                                    Left   Right
+--                                    continue  stop
+
+Usage:
+  let process (skipped, acc) line = do
+        if skipped < skipCount 
+          then return $ Left (skipped + 1, acc)
+          else if length acc < count
+            then return $ Left (skipped, acc ++ [line])
+            else return $ Right (skipped, acc)
+  
+  (_, result) <- foldLinesFrom lm offset (0, []) process
+
+PROS:
+  ✅ Functional (no mutable state)
+  ✅ Streaming (constant memory)
+  ✅ Predictable I/O
+  ✅ Early termination built-in
+
+CONS:
+  ❌ More complex for simple use cases
+  ❌ Fold with Either can be confusing
+
+
+Alternative 4: Simple Callback (what I'd recommend)
+----------------------------------------------------
+withLinesFrom :: LineMap -> Offset -> (T.Text -> IO Bool) -> IO ()
+--                                     ^           ^
+--                                     line        continue?
+
+Usage:
+  skippedRef <- newIORef 0
+  collectedRef <- newIORef []
+  
+  withLinesFrom lm offset $ \line -> do
+    skipped <- readIORef skippedRef
+    if skipped < skipCount
+      then writeIORef skippedRef (skipped + 1) >> return True
+      else do
+        collected <- readIORef collectedRef
+        if length collected < count
+          then writeIORef collectedRef (collected ++ [line]) >> return True
+          else return False  -- Stop
+
+PROS:
+  ✅ Simple signature
+  ✅ Streaming (constant memory)
+  ✅ Predictable I/O
+  ✅ Easy to understand
+
+CONS:
+  ❌ Callback style (not as compositional)
+  ❌ Caller manages state with IORefs
+
+
+My take: Alternative 2 (Iterator) is most natural for IO-heavy code.
+         Current design is still best for this specific use case.
+
+Which appeals to you?
