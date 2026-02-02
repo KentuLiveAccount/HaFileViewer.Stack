@@ -1,20 +1,21 @@
-Sparse Line Map v2 - Unified Forward/Backward Index
+Indexed File Reader - Unified Forward/Backward Index
 ====================================================
 
-This is an experimental redesign using an inverted index structure where:
+Stateful file reader with line-based access and sparse indexing:
 - Keys are byte offsets (absolute)
 - Values are line numbers (Forward or Backward reference frame)
-- Single unified table from the start
-- Simpler merging and convergence
+- Single unified index table
+- Memory-mapped file access with windowing
+- Cached total line count
 
 Module Header
 -------------
 
 > {-# LANGUAGE OverloadedStrings #-}
-> module HaFileViewer.LineMap2
->   ( LineMap
->   , openLineMap
->   , closeLineMap
+> module HaFileViewer.IndexedFileReader
+>   ( IndexedFileReader
+>   , openIndexedFileReader
+>   , closeIndexedFileReader
 >   , getLines
 >   , indexStepDefault
 >   ) where
@@ -57,23 +58,25 @@ Returns Nothing if conversion requires total but total is not known.
 > toAbsoluteLine (Just t)  (Backward n) = Just (t - n)
 > toAbsoluteLine Nothing   (Backward _) = Nothing
 
-The LineMap with unified index structure.
+IndexMap is the data type that keep track file offset for the beginning of each K-boundary line at LineIndex
 
 > type IndexMap = Map.Map Offset LineIndex
->
-> data LineMap = LineMap
->   { lmPath        :: FilePath
->   , lmFileSize    :: Integer
->   , lmWindowSize  :: Integer
->   , lmWindow      :: IORef (Offset, BS.ByteString)
->   , lmIndexStep   :: Int
->   , lmIndex       :: IORef IndexMap           -- Unified offset-to-line map
->   , lmTotalLines  :: IORef (Maybe Integer)    -- Cached total
->   , lmBackIndexed :: IORef Integer            -- Lines scanned from EOF
->   , lmBackOffset  :: IORef Offset             -- Furthest offset scanned backward to
->   }                                           -- CRITICAL: lmBackIndexed and lmBackOffset must
->                                               -- always refer to the same K-boundary position!
->                                               -- See computeTotalFromIndexes for why.
+
+The IndexedFileReader with unified index structure and stateful file access.
+
+> data IndexedFileReader = IndexedFileReader
+>   { ifrPath        :: FilePath
+>   , ifrFileSize    :: Integer
+>   , ifrWindowSize  :: Integer
+>   , ifrWindow      :: IORef (Offset, BS.ByteString)
+>   , ifrIndexStep   :: Int
+>   , ifrIndex       :: IORef IndexMap           -- Unified offset-to-line map
+>   , ifrTotalLines  :: IORef (Maybe Integer)    -- Cached total
+>   , ifrBackIndexed :: IORef Integer            -- Lines scanned from EOF
+>   , ifrBackOffset  :: IORef Offset             -- Furthest offset scanned backward to
+>   }                                            -- CRITICAL: ifrBackIndexed and ifrBackOffset must
+>                                                -- always refer to the same K-boundary position!
+>                                                -- See computeTotalFromIndexes for why.
 
 Default index step.
 
@@ -93,12 +96,12 @@ Default chunk size for sequential scanning.
 Public API
 ----------
 
-Open a file and create a LineMap for efficient line-based access.
+Open a file and create a IndexedFileReader for efficient line-based access.
 
-> openLineMap :: FilePath  -- ^ Path to the file to open
+> openIndexedFileReader :: FilePath  -- ^ Path to the file to open
 >             -> Int       -- ^ Index step (lines between index points)
->             -> IO LineMap  -- ^ Initialized line map
-> openLineMap path k = do
+>             -> IO IndexedFileReader  -- ^ Initialized line map
+> openIndexedFileReader path k = do
 >   fileSize <- withFile path ReadMode (fmap fromIntegral . hFileSize)
 >   let winSize = min windowSizeDefault fileSize
 >       mapSize = if winSize > 0 then Just (0, fromIntegral winSize) else Nothing
@@ -111,13 +114,13 @@ Open a file and create a LineMap for efficient line-based access.
 >   totalRef <- newIORef Nothing
 >   backIndexedRef <- newIORef 0
 >   backOffsetRef <- newIORef fileSize  -- Will be updated on first backward scan
->   return $ LineMap path fileSize windowSizeDefault winRef k indexRef totalRef backIndexedRef backOffsetRef
+>   return $ IndexedFileReader path fileSize windowSizeDefault winRef k indexRef totalRef backIndexedRef backOffsetRef
 
-Close a LineMap and release resources.
+Close a IndexedFileReader and release resources.
 
-> closeLineMap :: LineMap  -- ^ The line map to close
+> closeIndexedFileReader :: IndexedFileReader  -- ^ The line map to close
 >              -> IO ()
-> closeLineMap _lm = return ()
+> closeIndexedFileReader _lm = return ()
 
 Main API function.
 
@@ -126,48 +129,48 @@ Negative Indexing Helpers
 
 Convert negative index to positive using cached total and retrieve lines.
 
-> handleNegativeWithCache :: LineMap   -- ^ The line map
+> handleNegativeWithCache :: IndexedFileReader   -- ^ The line map
 >                         -> Integer   -- ^ Negative start index
 >                         -> Int       -- ^ Number of lines to read
 >                         -> Integer   -- ^ Cached total line count
 >                         -> IO [T.Text]  -- ^ Retrieved lines
 > handleNegativeWithCache lm start count total = do
 >   let startPos = max 0 (total + start)
->       k = fromIntegral (lmIndexStep lm)
+>       k = fromIntegral (ifrIndexStep lm)
 >       baseLine = (startPos `div` k) * k
 >   baseOffset <- findOrScanTo lm baseLine
 >   scanLinesFromOffset lm baseOffset baseLine startPos count
 
 Handle case where backward scan reached file start (total is now known).
 
-> handleNegativeReachedStart :: LineMap   -- ^ The line map
+> handleNegativeReachedStart :: IndexedFileReader   -- ^ The line map
 >                            -> Integer   -- ^ Negative start index
 >                            -> Int       -- ^ Number of lines to read
 >                            -> Integer   -- ^ Computed total line count
 >                            -> IO [T.Text]  -- ^ Retrieved lines
 > handleNegativeReachedStart lm start count total = do
->   writeIORef (lmTotalLines lm) (Just total)
+>   writeIORef (ifrTotalLines lm) (Just total)
 >   let startPos = max 0 (total + start)
->       k = fromIntegral (lmIndexStep lm)
+>       k = fromIntegral (ifrIndexStep lm)
 >       baseLine = (startPos `div` k) * k
 >   baseOffset <- findOrScanTo lm baseLine
 >   scanLinesFromOffset lm baseOffset baseLine startPos count
 
 Handle case where total must be computed from partial indexes.
 
-> handleNegativeComputeTotal :: LineMap   -- ^ The line map
+> handleNegativeComputeTotal :: IndexedFileReader   -- ^ The line map
 >                            -> Integer   -- ^ Negative start index
 >                            -> Int       -- ^ Number of lines to read
 >                            -> Integer   -- ^ Absolute value of start (lines from end)
 >                            -> Integer   -- ^ Lines scanned backward so far
 >                            -> IO [T.Text]  -- ^ Retrieved lines
 > handleNegativeComputeTotal lm start count linesFromEnd backLinesScanned = do
->   let k = fromIntegral (lmIndexStep lm)
+>   let k = fromIntegral (ifrIndexStep lm)
 >   if backLinesScanned < k
 >     then extractLinesFromBackwardScan lm linesFromEnd count
 >     else do
 >       total <- computeTotalFromIndexes lm
->       writeIORef (lmTotalLines lm) (Just total)
+>       writeIORef (ifrTotalLines lm) (Just total)
 >       let startPos = max 0 (total + start)
 >           baseLine = (startPos `div` k) * k
 >       baseOffset <- findOrScanTo lm baseLine
@@ -178,29 +181,29 @@ Positive Indexing Helper
 
 Handle forward/positive indexing - find K-boundary and scan forward.
 
-> handlePositiveIndex :: LineMap   -- ^ The line map
+> handlePositiveIndex :: IndexedFileReader   -- ^ The line map
 >                     -> Integer   -- ^ Starting line (0-based)
 >                     -> Int       -- ^ Number of lines to read
 >                     -> IO [T.Text]  -- ^ Retrieved lines
 > handlePositiveIndex lm start count = do
->   let k = fromIntegral (lmIndexStep lm)
+>   let k = fromIntegral (ifrIndexStep lm)
 >       baseLine = (start `div` k) * k
 >   baseOffset <- findOrScanTo lm baseLine
 >   lns <- scanLinesFromOffset lm baseOffset baseLine start count
 >   -- If we got fewer lines than requested, we hit EOF - cache the total
 >   when (length lns < count) $ do
 >     let totalLines = start + fromIntegral (length lns)
->     writeIORef (lmTotalLines lm) (Just totalLines)
+>     writeIORef (ifrTotalLines lm) (Just totalLines)
 >   return lns
 
-> getLines :: LineMap -> Integer -> Int -> IO [T.Text]
+> getLines :: IndexedFileReader -> Integer -> Int -> IO [T.Text]
 > getLines lm start count
 >   | count <= 0 = return []
->   | lmFileSize lm == 0 = return []
+>   | ifrFileSize lm == 0 = return []
 >   | start >= 0 = handlePositiveIndex lm start count
 >   | otherwise = do
 >       -- Negative indexing - check cache first
->       cachedTotal <- readIORef (lmTotalLines lm)
+>       cachedTotal <- readIORef (ifrTotalLines lm)
 >       case cachedTotal of
 >         Just total -> handleNegativeWithCache lm start count total
 >         Nothing -> do
@@ -208,13 +211,13 @@ Handle forward/positive indexing - find K-boundary and scan forward.
 >           let linesFromEnd = abs start
 >               targetLinesFromEnd = linesFromEnd + fromIntegral count
 >           -- Scan backward if needed
->           backLinesScanned <- readIORef (lmBackIndexed lm)
+>           backLinesScanned <- readIORef (ifrBackIndexed lm)
 >           when (backLinesScanned < targetLinesFromEnd) $ do
 >             scanBackwardAndBuildIndex lm targetLinesFromEnd
 >             checkAndMergeIndexes lm
 >           -- Check results
->           backLinesScanned' <- readIORef (lmBackIndexed lm)
->           idx <- readIORef (lmIndex lm)
+>           backLinesScanned' <- readIORef (ifrBackIndexed lm)
+>           idx <- readIORef (ifrIndex lm)
 >           let hasBackwardAtStart = Map.member 0 idx && case Map.lookup 0 idx of
 >                                      Just (Backward _) -> True
 >                                      _ -> False
@@ -229,35 +232,35 @@ Handle forward/positive indexing - find K-boundary and scan forward.
 Helper: Windowed Memory Mapping
 -------------------------------
 
-Wrapper functions that use the common utilities with LineMap fields.
+Wrapper functions that use the common utilities with IndexedFileReader fields.
 
-> ensureMappedLM :: LineMap   -- ^ The line map
+> ensureMappedLM :: IndexedFileReader   -- ^ The line map
 >                -> Offset    -- ^ Offset to ensure is mapped
 >                -> Integer   -- ^ Number of bytes to ensure are mapped
 >                -> IO ()
-> ensureMappedLM lm = ensureMapped (lmPath lm) (lmFileSize lm) (lmWindowSize lm) (lmWindow lm)
+> ensureMappedLM lm = ensureMapped (ifrPath lm) (ifrFileSize lm) (ifrWindowSize lm) (ifrWindow lm)
 
 Read bytes at a specific offset, handling window remapping if needed.
 
-> readAtOffsetLM :: LineMap    -- ^ The line map
+> readAtOffsetLM :: IndexedFileReader    -- ^ The line map
 >                -> Offset     -- ^ Starting offset to read from
 >                -> Integer    -- ^ Number of bytes to read
 >                -> IO BS.ByteString  -- ^ The bytes read
-> readAtOffsetLM lm = readAtOffset (lmPath lm) (lmFileSize lm) (lmWindowSize lm) (lmWindow lm)
+> readAtOffsetLM lm = readAtOffset (ifrPath lm) (ifrFileSize lm) (ifrWindowSize lm) (ifrWindow lm)
 
 Core Index Operations
 ---------------------
 
 Find or scan to a target line, returning the byte offset.
 
-> findOrScanTo :: LineMap   -- ^ The line map
+> findOrScanTo :: IndexedFileReader   -- ^ The line map
 >              -> Integer   -- ^ Target line number (0-based)
 >              -> IO Offset  -- ^ Byte offset at start of target line
 > findOrScanTo lm targetLine
 >   | targetLine == 0 = return 0
 >   | otherwise = do
->       idx <- readIORef (lmIndex lm)
->       cachedTotal <- readIORef (lmTotalLines lm)
+>       idx <- readIORef (ifrIndex lm)
+>       cachedTotal <- readIORef (ifrTotalLines lm)
 >       
 
 >       -- Find closest indexed line at or before target
@@ -280,7 +283,7 @@ Scan from a known offset/line to find the target line.
 
 Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 
-> recordForwardIndexEntries :: LineMap   -- ^ The line map to update
+> recordForwardIndexEntries :: IndexedFileReader   -- ^ The line map to update
 >                           -> Integer   -- ^ Index step K (record every K lines)
 >                           -> [Int]     -- ^ Byte positions of newlines in chunk
 >                           -> Integer   -- ^ Line number at start of chunk (0-based)
@@ -296,7 +299,7 @@ Helper: Record Forward index entries at K-boundaries for newlines in a chunk.
 >                 , ln `mod` k == 0]
 >   -- Insert all entries in one batch operation
 >   unless (null entries) $
->     modifyIORef' (lmIndex lm) (Map.union (Map.fromList entries))
+>     modifyIORef' (ifrIndex lm) (Map.union (Map.fromList entries))
 
 Scan from a known position to find a target line.
 
@@ -311,13 +314,13 @@ Helper: Try to get element at index N, or return count if list too short.
 >     go i count (y:ys) = go (i-1) (count+1) ys  -- Keep counting and skipping
 >     go _ count []     = Left count    -- Ran out, return count so far
 
-> scanToLine :: LineMap    -- ^ The line map for file access and indexing
+> scanToLine :: IndexedFileReader    -- ^ The line map for file access and indexing
 >            -> Offset     -- ^ Starting byte offset (known position)
 >            -> Integer    -- ^ Line number at start offset (0-based)
 >            -> Integer    -- ^ Target line number to find (0-based)
 >            -> IO Offset  -- ^ Byte offset at start of target line
 > scanToLine lm startOffset startLine targetLine = do
->   let k = fromIntegral (lmIndexStep lm)
+>   let k = fromIntegral (ifrIndexStep lm)
 >       linesToScan = targetLine - startLine
 >       chunkSize = scanChunkSizeDefault
 >       
@@ -325,7 +328,7 @@ Helper: Try to get element at index N, or return count if list too short.
 >         if linesLeft <= 0
 >           then return offset
 >           else do
->             let readSize = min chunkSize (lmFileSize lm - offset)
+>             let readSize = min chunkSize (ifrFileSize lm - offset)
 >             if readSize <= 0
 >               then return offset
 >               else do
@@ -374,7 +377,7 @@ Create a new iterator starting at a given offset and line number.
 
 Get the next line from the iterator, returning updated state (raw ByteString).
 
-> nextLine :: LineMap       -- ^ The line map for file access
+> nextLine :: IndexedFileReader       -- ^ The line map for file access
 >          -> LineIterator  -- ^ Current iterator state
 >          -> IO (Maybe BS.ByteString, LineIterator)  -- ^ Next line (raw) and new state
 > nextLine lm iter@(LineIterator offset partial buffer lineNum) = do
@@ -384,7 +387,7 @@ Get the next line from the iterator, returning updated state (raw ByteString).
 >       return (Just line, iter { liBuffer = rest, liLineNum = lineNum + 1 })
 >     [] -> do
 >       -- Buffer empty, read next chunk
->       let fileSize = lmFileSize lm
+>       let fileSize = ifrFileSize lm
 >       if offset >= fileSize
 >         then 
 >           -- EOF - return final partial line if exists
@@ -411,7 +414,7 @@ Get the next line from the iterator, returning updated state (raw ByteString).
 >                                 ((BS.append partial p) : initPs, lastPs)
 >           
 >           -- Build index entries for K-boundaries in this chunk
->           let k = fromIntegral (lmIndexStep lm)
+>           let k = fromIntegral (ifrIndexStep lm)
 >               positions = BS.elemIndices lfByte chunk
 >           recordForwardIndexEntries lm k positions lineNum offset
 >           
@@ -420,7 +423,7 @@ Get the next line from the iterator, returning updated state (raw ByteString).
 
 Skip N lines efficiently using the iterator.
 
-> skipLines :: LineMap       -- ^ The line map for file access
+> skipLines :: IndexedFileReader       -- ^ The line map for file access
 >           -> LineIterator  -- ^ Current iterator state
 >           -> Int           -- ^ Number of lines to skip
 >           -> IO LineIterator  -- ^ Updated iterator after skipping
@@ -433,7 +436,7 @@ Skip N lines efficiently using the iterator.
 
 Collect N lines using the iterator, decoding to Text.
 
-> collectLines :: LineMap       -- ^ The line map for file access
+> collectLines :: IndexedFileReader       -- ^ The line map for file access
 >              -> LineIterator  -- ^ Current iterator state
 >              -> Int           -- ^ Number of lines to collect
 >              -> IO [T.Text]   -- ^ Collected lines (decoded and normalized)
@@ -457,7 +460,7 @@ byte offset and line number. It handles:
 - Skipping lines before the target
 - Windows (CRLF) and Unix (LF) line endings
 
-> scanLinesFromOffset :: LineMap   -- ^ The line map with file access
+> scanLinesFromOffset :: IndexedFileReader   -- ^ The line map with file access
 >                     -> Offset     -- ^ Starting byte offset in file
 >                     -> Integer    -- ^ Line number at startOffset (0-based)
 >                     -> Integer    -- ^ Target line number to start reading (0-based)
@@ -474,14 +477,14 @@ Backward Scanning
 
 Scan backward from EOF to build Backward index entries.
 
-> scanBackwardAndBuildIndex :: LineMap   -- ^ The line map
+> scanBackwardAndBuildIndex :: IndexedFileReader   -- ^ The line map
 >                           -> Integer   -- ^ Target lines from end to scan
 >                           -> IO ()
 > scanBackwardAndBuildIndex lm targetLinesFromEnd = do
->   backLinesScanned <- readIORef (lmBackIndexed lm)
+>   backLinesScanned <- readIORef (ifrBackIndexed lm)
 >   when (backLinesScanned < targetLinesFromEnd) $ do
->     let k = fromIntegral (lmIndexStep lm)
->         fileSize = lmFileSize lm
+>     let k = fromIntegral (ifrIndexStep lm)
+>         fileSize = ifrFileSize lm
 >         chunkSize = scanChunkSizeDefault
 >     
 >     -- Initialize based on whether we've scanned before and whether file ends with LF
@@ -510,28 +513,28 @@ Scan backward from EOF to build Backward index entries.
 >                         absoluteOffset = readStart + fromIntegral pos + 1
 >                         linesFromEndHere = linesFromEnd + fromIntegral (linesInChunk - i - 1)
 >                     when (linesFromEndHere `mod` k == 0) $ do
->                       modifyIORef' (lmIndex lm) (Map.insert absoluteOffset (Backward linesFromEndHere))
+>                       modifyIORef' (ifrIndex lm) (Map.insert absoluteOffset (Backward linesFromEndHere))
 >                       -- CRITICAL: Update tracked values to match this K-boundary entry.
->                       -- lmBackIndexed and lmBackOffset must ALWAYS refer to an actual indexed
+>                       -- ifrBackIndexed and ifrBackOffset must ALWAYS refer to an actual indexed
 >                       -- K-boundary position, not arbitrary chunk boundaries. This ensures that
 >                       -- computeTotalFromIndexes correctly calculates: total = linesFromStart + backIndexed
->                       -- where linesFromStart is newlines from 0 to lmBackOffset, and backIndexed is
->                       -- lines from lmBackOffset to EOF, both referring to the same offset.
->                       writeIORef (lmBackIndexed lm) linesFromEndHere
->                       writeIORef (lmBackOffset lm) absoluteOffset
+>                       -- where linesFromStart is newlines from 0 to ifrBackOffset, and backIndexed is
+>                       -- lines from ifrBackOffset to EOF, both referring to the same offset.
+>                       writeIORef (ifrBackIndexed lm) linesFromEndHere
+>                       writeIORef (ifrBackOffset lm) absoluteOffset
 >               
 >               mapM_ recordIndex [linesInChunk - 1, linesInChunk - 2 .. 0]
 >               
 >               let newLinesFromEnd = linesFromEnd + fromIntegral linesInChunk
->               -- Note: lmBackIndexed and lmBackOffset are updated in recordIndex for K-boundaries
+>               -- Note: ifrBackIndexed and ifrBackOffset are updated in recordIndex for K-boundaries
 >               -- We don't update them here to keep them at the last K-boundary
 >               if readStart == 0
 >                 then do
 >                   -- Reached beginning
->                   modifyIORef' (lmIndex lm) (Map.insert 0 (Backward newLinesFromEnd))
+>                   modifyIORef' (ifrIndex lm) (Map.insert 0 (Backward newLinesFromEnd))
 >                   -- Update to reflect reaching the start
->                   writeIORef (lmBackIndexed lm) newLinesFromEnd
->                   writeIORef (lmBackOffset lm) 0
+>                   writeIORef (ifrBackIndexed lm) newLinesFromEnd
+>                   writeIORef (ifrBackOffset lm) 0
 >                   return ()
 >                 else loop readStart newLinesFromEnd
 >     
@@ -539,21 +542,21 @@ Scan backward from EOF to build Backward index entries.
 
 Count how many backward lines have been scanned.
 
-> countBackwardLines :: LineMap      -- ^ The line map
+> countBackwardLines :: IndexedFileReader      -- ^ The line map
 >                    -> IO Integer   -- ^ Number of lines scanned from end
 > countBackwardLines lm = do
->   idx <- readIORef (lmIndex lm)
+>   idx <- readIORef (ifrIndex lm)
 >   let backwardEntries = [n | Backward n <- Map.elems idx]
 >   return $ if null backwardEntries then 0 else maximum backwardEntries
 
 Extract lines directly from backward scan without computing total.
 
-> extractLinesFromBackwardScan :: LineMap      -- ^ The line map
+> extractLinesFromBackwardScan :: IndexedFileReader      -- ^ The line map
 >                              -> Integer      -- ^ Lines from end to start
 >                              -> Int          -- ^ Number of lines to extract
 >                              -> IO [T.Text]  -- ^ Extracted lines
 > extractLinesFromBackwardScan lm linesFromEnd count = do
->   let fileSize = lmFileSize lm
+>   let fileSize = ifrFileSize lm
 >       chunkSize = scanChunkSizeDefault
 >       targetLines = fromIntegral linesFromEnd + fromIntegral count - 1
 >       
@@ -591,14 +594,14 @@ Convergence Detection
 
 Check if forward and backward indexes have converged.
 
-> checkAndMergeIndexes :: LineMap  -- ^ The line map
+> checkAndMergeIndexes :: IndexedFileReader  -- ^ The line map
 >                      -> IO ()
 > checkAndMergeIndexes lm = do
->   cachedTotal <- readIORef (lmTotalLines lm)
+>   cachedTotal <- readIORef (ifrTotalLines lm)
 >   case cachedTotal of
 >     Just _ -> return ()  -- Already have total
 >     Nothing -> do
->       idx <- readIORef (lmIndex lm)
+>       idx <- readIORef (ifrIndex lm)
 >       let forwardOffsets = [off | (off, Forward _) <- Map.toList idx]
 >           backwardOffsets = [off | (off, Backward _) <- Map.toList idx]
 >       
@@ -608,15 +611,15 @@ Check if forward and backward indexes have converged.
 >         when (maxFwd >= minBack) $ do
 >           -- Converged - compute total
 >           total <- computeTotalFromIndexes lm
->           writeIORef (lmTotalLines lm) (Just total)
+>           writeIORef (ifrTotalLines lm) (Just total)
 
 Compute total lines from converged indexes.
 
-> computeTotalFromIndexes :: LineMap -> IO Integer
+> computeTotalFromIndexes :: IndexedFileReader -> IO Integer
 > computeTotalFromIndexes lm = do
->   idx <- readIORef (lmIndex lm)
->   backIndexed <- readIORef (lmBackIndexed lm)
->   lastBackOffset <- readIORef (lmBackOffset lm)
+>   idx <- readIORef (ifrIndex lm)
+>   backIndexed <- readIORef (ifrBackIndexed lm)
+>   lastBackOffset <- readIORef (ifrBackOffset lm)
 >
 >   -- Find the maximum forward line number in the index
 >   let forwardLines = [n | Forward n <- Map.elems idx]
@@ -629,11 +632,11 @@ Compute total lines from converged indexes.
 >       if maxForwardLine == 0
 >         then do
 >           -- No index at all, scan backward to EOF to build it
->           let fileSize = lmFileSize lm
+>           let fileSize = ifrFileSize lm
 >               estimatedLines = max (fileSize `div` 60) 1000000
 >           scanBackwardAndBuildIndex lm estimatedLines
->           backIndexed' <- readIORef (lmBackIndexed lm)
->           lastBackOffset' <- readIORef (lmBackOffset lm)
+>           backIndexed' <- readIORef (ifrBackIndexed lm)
+>           lastBackOffset' <- readIORef (ifrBackOffset lm)
 >           if lastBackOffset' == 0
 >             then return backIndexed'
 >             else do
@@ -653,7 +656,7 @@ Compute total lines from converged indexes.
 
 Helper: Count lines from a known position to EOF.
 
-> countLinesFrom :: LineMap -> Offset -> Integer -> IO Integer
+> countLinesFrom :: IndexedFileReader -> Offset -> Integer -> IO Integer
 > countLinesFrom lm startOffset startLine = do
 >   let iter = createLineIterator startOffset startLine
 >       loop it count = do
@@ -670,7 +673,7 @@ Helper: Fold over file chunks with accumulating state.
 This is a general streaming fold that processes a file in chunks without
 materializing an intermediate list. It's used by multiple counting functions.
 
-> foldFileChunks :: LineMap    -- ^ The line map with file access
+> foldFileChunks :: IndexedFileReader    -- ^ The line map with file access
 >                -> Offset      -- ^ Starting byte offset
 >                -> Offset      -- ^ Ending byte offset (exclusive)
 >                -> s           -- ^ Initial state
@@ -690,7 +693,7 @@ materializing an intermediate list. It's used by multiple counting functions.
 
 Count lines up to a given offset.
 
-> countLinesUpTo :: LineMap      -- ^ The line map
+> countLinesUpTo :: IndexedFileReader      -- ^ The line map
 >                -> Offset       -- ^ Target offset to count up to
 >                -> IO Integer   -- ^ Number of newlines up to offset
 > countLinesUpTo lm targetOffset =

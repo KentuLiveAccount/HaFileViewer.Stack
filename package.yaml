@@ -7,7 +7,7 @@ extra-source-files: []
 library:
   exposed-modules: 
     - HaFileViewer.LineMap
-    - HaFileViewer.LineMap2
+    - HaFileViewer.IndexedFileReader
   source-dirs: src
   ghc-options: -Wall
   dependencies:

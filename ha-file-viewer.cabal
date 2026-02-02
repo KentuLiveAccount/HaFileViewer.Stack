@@ -15,7 +15,7 @@ build-type:     Simple
 library
     exposed-modules:
           HaFileViewer.LineMap
-          HaFileViewer.LineMap2
+          HaFileViewer.IndexedFileReader
     other-modules:
           HaFileViewer.LineMap.Common
           Paths_ha_file_viewer
