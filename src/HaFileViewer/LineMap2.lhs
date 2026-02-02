@@ -40,26 +40,22 @@ Core Data Types
 ---------------
 
 Line numbers can be counted from start (Forward) or end (Backward).
+NOTE: No Eq or Ord instances - comparison requires knowing the total line count.
+Forward 5 and Backward 5 might refer to the same line (when total=10), but
+structural equality would report them as different.
 
 > data LineIndex = Forward Integer | Backward Integer
->   deriving (Show, Eq, Ord)
+>   deriving (Show)
 
-Convert to absolute line number when total is known.
+Convert to absolute line number when possible.
+Returns Nothing if conversion requires total but total is not known.
 
-> toAbsoluteLine :: Integer    -- ^ Total number of lines in file
->                -> LineIndex  -- ^ Line index (Forward or Backward)
->                -> Integer    -- ^ Absolute line number (0-based)
-> toAbsoluteLine _total (Forward n)  = n
-> toAbsoluteLine total  (Backward n) = total - n
-
-Check if we can use this entry (Forward always usable, Backward only if total known).
-
-> isUsable :: Maybe Integer  -- ^ Total lines (if known)
->          -> LineIndex      -- ^ Line index to check
->          -> Bool           -- ^ Whether the index is usable
-> isUsable _         (Forward _)  = True
-> isUsable (Just _)  (Backward _) = True
-> isUsable Nothing   (Backward _) = False
+> toAbsoluteLine :: Maybe Integer  -- ^ Total number of lines (if known)
+>                -> LineIndex      -- ^ Line index (Forward or Backward)
+>                -> Maybe Integer  -- ^ Absolute line number (0-based), or Nothing
+> toAbsoluteLine _         (Forward n)  = Just n
+> toAbsoluteLine (Just t)  (Backward n) = Just (t - n)
+> toAbsoluteLine Nothing   (Backward _) = Nothing
 
 The LineMap with unified index structure.
 
@@ -265,15 +261,9 @@ Find or scan to a target line, returning the byte offset.
 >       
 
 >       -- Find closest indexed line at or before target
->       let usableEntries = [(off, ln) | (off, li) <- Map.toList idx
->                                       , isUsable cachedTotal li
->                                       , let ln = case li of
->                                               Forward n -> n
->                                               Backward n -> case cachedTotal of
->                                                 Just t -> t - n
->                                                 Nothing -> -1
->                                       , ln >= 0 && ln <= targetLine]
->       
+>       let usableEntries = [(off, ln) | (off, li) <- Map.toList idx                 -- extract content of idx into a list :: [(Offset, LineIndex)]
+>                                       , Just ln <- [toAbsoluteLine cachedTotal li] -- convert to absolute line number :: [[(Offset, Integer)]]
+>                                       , ln >= 0 && ln <= targetLine]               -- filter to usable entries
 
 >       case usableEntries of
 >         [] -> do
@@ -359,7 +349,8 @@ Helper: Try to get element at index N, or return count if list too short.
 >                     in loop newOffset newLineNum newLinesLeft
 >   
 >   loop startOffset startLine linesToScan
-
+
+
 Line Iterator - Explicit State Passing
 ---------------------------------------
 
