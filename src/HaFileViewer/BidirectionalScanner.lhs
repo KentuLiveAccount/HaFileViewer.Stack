@@ -199,7 +199,7 @@ Assumes canonical format (as if file ends with newline).
 > processChunk strat chunk state =
 >   let -- Canonicalize chunk if it's the last/first chunk
 >       canonicalChunk = stratCanonicalizeChunk strat chunk state
->       pieces = BS.split lfByte canonicalChunk
+>       pieces = map stripCR $ BS.split lfByte canonicalChunk
 >       (newLines, newPartial) = extractLinesCanonical strat pieces (ssPartial state)
 >       offsetDelta = fromIntegral (BS.length chunk)  -- Use original chunk length
 >       newOffset = stratUpdateOffset strat offsetDelta (ssOffset state)
@@ -208,6 +208,14 @@ Assumes canonical format (as if file ends with newline).
 >            , ssLines = stratCombineLines strat (ssLines state) newLines
 >            , ssLineCount = ssLineCount state + length newLines
 >            }
+
+Strip trailing CR to handle both Unix (LF) and Windows (CRLF) line endings.
+
+> stripCR :: BS.ByteString -> BS.ByteString
+> stripCR bs
+>   | BS.null bs = bs
+>   | BS.last bs == 13 = BS.init bs  -- 13 is '\r'
+>   | otherwise = bs
 
 Extract lines from canonicalized chunks - now fully generic using strategy.
 Assumes chunk format after split: [piece0, piece1, ..., pieceN, ""]

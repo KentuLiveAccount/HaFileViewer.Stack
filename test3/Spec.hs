@@ -3,7 +3,7 @@ module Main (main) where
 
 import Test.Hspec
 import System.IO.Temp (withSystemTempFile)
-import System.IO (hPutStr, hClose, Handle, hSetBinaryMode)
+import System.IO (hPutStr, hClose, Handle)
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
 import HaFileViewer.BidirectionalScanner
@@ -15,11 +15,10 @@ readFromFile path offset size = do
   content <- mmapFileByteString path Nothing
   return $ BS.take (fromIntegral size) $ BS.drop (fromIntegral offset) content
 
--- Helper to create temp file with content (binary mode to avoid CRLF conversion)
+-- Helper to create temp file with content
 withTempFile :: String -> (FilePath -> IO a) -> IO a
 withTempFile content action = 
   withSystemTempFile "bidir_test.txt" $ \path h -> do
-    hSetBinaryMode h True
     hPutStr h content
     hClose h
     action path
