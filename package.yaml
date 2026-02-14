@@ -8,6 +8,7 @@ library:
   exposed-modules: 
     - HaFileViewer.LineMap
     - HaFileViewer.IndexedFileReader
+    - HaFileViewer.BidirectionalScanner
   source-dirs: src
   ghc-options: -Wall
   dependencies:
