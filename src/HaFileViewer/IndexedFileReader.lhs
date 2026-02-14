@@ -71,14 +71,14 @@ The IndexedFileReader with unified index structure and stateful file access.
 >   , ifrWindow      :: IORef (Offset, BS.ByteString)
 >   , ifrIndexStep   :: Int
 >   , ifrIndex       :: IORef IndexMap           -- Unified offset-to-line map
->   , ifrTotalLines  :: IORef (Maybe Integer)    -- Cached total
+>   , ifrTotalLines  :: IORef (Maybe Integer)    -- Total line count of the file (Nothing if unknown)
 >   , ifrBackIndexed :: IORef Integer            -- Lines scanned from EOF
 >   , ifrBackOffset  :: IORef Offset             -- Furthest offset scanned backward to
 >   }                                            -- CRITICAL: ifrBackIndexed and ifrBackOffset must
 >                                                -- always refer to the same K-boundary position!
 >                                                -- See computeTotalFromIndexes for why.
 
-Default index step.
+Default index step. This determines how many lines between indexed entries. Used to save space in the index.
 
 > indexStepDefault :: Int
 > indexStepDefault = 1024
@@ -127,12 +127,12 @@ Main API function.
 Negative Indexing Helpers
 --------------------------
 
-Convert negative index to positive using cached total and retrieve lines.
+Convert negative index to positive using total line count of the file and retrieve lines.
 
 > handleNegativeWithCache :: IndexedFileReader   -- ^ The line map
 >                         -> Integer   -- ^ Negative start index
->                         -> Int       -- ^ Number of lines to read
->                         -> Integer   -- ^ Cached total line count
+>                         -> Int       -- ^ Number of lines to read (always reads forward)
+>                         -> Integer   -- ^ Total line count of the file
 >                         -> IO [T.Text]  -- ^ Retrieved lines
 > handleNegativeWithCache lm start count total = do
 >   let startPos = max 0 (total + start)
@@ -146,7 +146,7 @@ Handle case where backward scan reached file start (total is now known).
 > handleNegativeReachedStart :: IndexedFileReader   -- ^ The line map
 >                            -> Integer   -- ^ Negative start index
 >                            -> Int       -- ^ Number of lines to read
->                            -> Integer   -- ^ Computed total line count
+>                            -> Integer   -- ^ Computed total line count of the file
 >                            -> IO [T.Text]  -- ^ Retrieved lines
 > handleNegativeReachedStart lm start count total = do
 >   writeIORef (ifrTotalLines lm) (Just total)
@@ -552,7 +552,7 @@ Count how many backward lines have been scanned.
 Extract lines directly from backward scan without computing total.
 
 > extractLinesFromBackwardScan :: IndexedFileReader      -- ^ The line map
->                              -> Integer      -- ^ Lines from end to start
+>                              -> Integer      -- ^ Negative line index to start the extract
 >                              -> Int          -- ^ Number of lines to extract
 >                              -> IO [T.Text]  -- ^ Extracted lines
 > extractLinesFromBackwardScan lm linesFromEnd count = do
