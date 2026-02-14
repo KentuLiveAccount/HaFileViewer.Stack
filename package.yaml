@@ -75,3 +75,17 @@ tests:
       - bytestring
       - time
 
+  ha-file-viewer-test3:
+    main: Spec.hs
+    source-dirs: test3
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+    dependencies:
+      - ha-file-viewer
+      - base
+      - hspec
+      - temporary
+      - filepath
+      - text
+      - bytestring
+      - mmap
+
