@@ -26,6 +26,7 @@ Module Header
 >   , normalizeLine
 >   , decodeUtf8Lenient
 >   )
+> import Debug.Trace (trace)
 
 Core Types
 ----------
@@ -106,7 +107,7 @@ Create strategy for backward scanning.
 >       in if needsLF then BS.snoc chunk lfByte else chunk
 >   , stratCombinePartial = \piece partial -> BS.append piece partial  -- partial on right
 >   , stratGetEdgePiece = last . init             -- last real piece combines with partial
->   , stratGetMiddle = init . tail                -- drop first and last
+>   , stratGetMiddle = init . tail . init         -- drop first, trailing empty, then last real
 >   , stratGetNewPartial = head                   -- first piece is new partial
 >   }
 
