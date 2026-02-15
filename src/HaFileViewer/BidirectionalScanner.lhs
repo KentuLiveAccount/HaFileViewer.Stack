@@ -174,7 +174,8 @@ Canonicalizes input by treating missing trailing newline as present.
 >   endsWithLF <- checkFileEndsWithLF fileSize readFn
 >   let initialState = initScanState strat fileSize endsWithLF
 >   finalState <- scanLoop strat readFn count initialState
->   return $ prepareFinalLines strat (ssEndsWithLF finalState) (ssPartial finalState) (ssLines finalState)
+>   let allLines = prepareFinalLines strat (ssEndsWithLF finalState) (ssPartial finalState) (ssLines finalState)
+>   return $ take count allLines  -- Truncate to requested count
 
 Main scanning loop - now fully generic using strategy.
 
