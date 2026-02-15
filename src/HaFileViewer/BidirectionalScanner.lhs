@@ -101,8 +101,8 @@ Create strategy for backward scanning - mirrors forward by reversing pieces.
 >       in (startOffset, size)
 >   , stratUpdateOffset = \delta offset -> offset - delta
 >   , stratCombineLines = flip (++)  -- Prepend to beginning
->   , stratPartialSide = LeftPartial  -- After reversing, partial is on left
->   , stratFinalOrder = id  -- No reversal - pieces are reversed
+>   , stratPartialSide = RightPartial  -- Reading backward from EOF, partial on right
+>   , stratFinalOrder = reverse  -- Pieces are in reverse order, need to reverse back
 >   , stratCanonicalizeChunk = \chunk state ->
 >       let isEOFChunk = ssOffset state >= ssFileSize state
 >           needsLF = isEOFChunk && not (ssEndsWithLF state) && not (BS.null chunk)
@@ -183,7 +183,7 @@ Canonicalizes input by treating missing trailing newline as present.
 >   let initialState = initScanState strat fileSize endsWithLF
 >   finalState <- scanLoop strat readFn count initialState
 >   let allLines = prepareFinalLines strat (ssEndsWithLF finalState) (ssPartial finalState) (ssLines finalState)
->   return $ take count allLines  -- Truncate to requested count
+>   return $ take count allLines
 
 Main scanning loop - now fully generic using strategy.
 
@@ -248,6 +248,7 @@ The last piece is empty because canonical chunks end with LF.
 >       newPartial = stratGetNewPartial strat pieces
 >   in (allLines, newPartial)
 
+Prepare final result with proper ordering and decoding.
 Prepare final result with proper ordering and decoding.
 In canonical format, partial should be empty at end.
 

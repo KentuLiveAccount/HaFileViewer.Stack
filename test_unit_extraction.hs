@@ -69,33 +69,65 @@ testCanonical = do
 -- Test backward extraction logic manually
 testBackwardExtraction :: IO ()
 testBackwardExtraction = do
-  putStrLn "\n=== Testing Backward extraction ==="
-  putStrLn "\nFrom \"a\\n\\nb\\n\" (canonical)"
-  let pieces = ["a", "", "b", ""]
-      partial = ""
+  putStrLn "\n=== Testing Backward strategy functions ==="
   
-  putStrLn $ "Pieces (file order): " ++ show pieces
-  putStrLn $ "Partial: " ++ show partial
+  putStrLn "\nWith original pieces = [\"a\", \"\", \"b\", \"\"]"
+  let originalPieces = ["a", "", "b", ""]
+  putStrLn $ "  Original: " ++ show originalPieces
   
-  -- Current backward strategy (from code)
-  putStrLn "\nCurrent backward strategy (broken):"
-  let edgePiece = last (init pieces)  -- last . init
-      edgeLine = BS.append edgePiece partial  -- piece + partial
-      middleLines = init (tail (init pieces))  -- init . tail . init
-      newPartial = head pieces
+  -- Simulate what backward strategy should do
+  let reversed = reverse originalPieces
+  putStrLn $ "  After reverse: " ++ show reversed
   
-  putStrLn $ "  Edge piece (last . init): " ++ show edgePiece
-  putStrLn $ "  Edge line (piece + partial): " ++ show edgeLine
-  putStrLn $ "  Middle (init . tail . init): " ++ show middleLines
-  putStrLn $ "  New partial (head): " ++ show newPartial
+  -- Drop trailing empty (which is now first)
+  let dropEmpty ps = if null ps || not (BS.null (head ps))
+                     then ps
+                     else tail ps
+      orderedPieces = dropEmpty reversed
+  putStrLn $ "  After dropEmpty: " ++ show orderedPieces
   
-  -- After prepend to empty list and adding partial
-  let allLines = middleLines ++ [edgeLine]  -- RightPartial
-      withPartial = partial : allLines  -- Add partial at front
-  putStrLn $ "  All lines: " ++ show allLines
-  putStrLn $ "  With partial: " ++ show withPartial
-  putStrLn $ "  After reverse: " ++ show (reverse withPartial)
-  putStrLn $ "Expected: [\"a\", \"\", \"b\"]"
+  -- Now apply forward-like extraction
+  if null orderedPieces || length orderedPieces < 2
+    then putStrLn "  ERROR: Not enough pieces after ordering!"
+    else do
+      let edgePiece = head orderedPieces
+          middleLines = tail (init orderedPieces)
+          newPartial = last orderedPieces
+          partial = ""
+          edgeLine = BS.append partial edgePiece
+          allLines = edgeLine : middleLines
+      
+      putStrLn $ "  Edge piece (head): " ++ show edgePiece
+      putStrLn $ "  Edge line (partial + edge): " ++ show edgeLine
+      putStrLn $ "  Middle (tail . init): " ++ show middleLines
+      putStrLn $ "  New partial (last): " ++ show newPartial
+      putStrLn $ "  All lines: " ++ show allLines
+      putStrLn $ "  Expected: [\"b\", \"\", \"a\"] (reversed file order)"
+      putStrLn $ "  Match? " ++ show (allLines == ["b", "", "a"])
+  
+  putStrLn "\nWith single line [\"single\", \"\"]:"
+  testBackwardStratFuncs ["single", ""]
+  
+  putStrLn "\nWith three lines [\"line1\", \"line2\", \"line3\", \"\"]:"
+  testBackwardStratFuncs ["line1", "line2", "line3", ""]
+
+testBackwardStratFuncs :: [BS.ByteString] -> IO ()
+testBackwardStratFuncs originalPieces = do
+  putStrLn $ "  Original: " ++ show originalPieces
+  let reversed = reverse originalPieces
+      dropEmpty ps = if null ps || not (BS.null (head ps))
+                     then ps
+                     else tail ps
+      orderedPieces = dropEmpty reversed
+  putStrLn $ "  After reverse+drop: " ++ show orderedPieces
+  if null orderedPieces
+    then putStrLn "  ERROR: Empty after ordering!"
+    else if length orderedPieces == 1
+      then putStrLn $ "  Single piece: " ++ show (head orderedPieces)
+      else do
+        putStrLn $ "  head (edge): " ++ show (head orderedPieces)
+        putStrLn $ "  last (new partial): " ++ show (last orderedPieces)
+        putStrLn $ "  tail . init (middle): " ++ show (tail (init orderedPieces))
 testForwardExtraction = do
   putStrLn "\nFrom \"a\\n\\nb\\n\" (canonical)"
   let pieces = ["a", "", "b", ""]
