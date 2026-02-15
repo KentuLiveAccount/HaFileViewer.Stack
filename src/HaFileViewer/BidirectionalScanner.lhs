@@ -115,7 +115,7 @@ Create strategy for backward scanning - mirrors forward by reversing pieces.
 >       in dropEmpty reversed  -- Reverse and drop trailing empty
 >   , stratCombinePartial = \partial piece -> BS.append partial piece  -- Same as forward!
 >   , stratGetEdgePiece = \ps -> if null ps then BS.empty else head ps  -- Same as forward!
->   , stratGetMiddle = \ps -> if length ps < 2 then [] else tail (init ps)  -- Same as forward!
+>   , stratGetMiddle = \ps -> if length ps < 2 then [] else reverse (tail (init ps))  -- Reverse middle for file order!
 >   , stratGetNewPartial = \ps -> if null ps then BS.empty else last ps  -- Same as forward!
 >   }
 
