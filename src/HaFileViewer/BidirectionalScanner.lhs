@@ -85,8 +85,8 @@ Create strategy for forward scanning.
 >   , stratOrderPieces = id  -- Keep pieces in file order
 >   , stratCombinePartial = \partial piece -> BS.append partial piece  -- partial on left
 >   , stratGetEdgePiece = head                    -- first piece combines with partial
->   , stratGetMiddle = tail . init                -- drop first and last
->   , stratGetNewPartial = last                   -- last piece is new partial
+>   , stratGetMiddle = \ps -> if length ps < 2 then [] else tail (init ps)  -- drop first and last
+>   , stratGetNewPartial = \ps -> if null ps then BS.empty else last ps  -- last piece is new partial
 >   }
 
 Create strategy for backward scanning - mirrors forward by reversing pieces.
@@ -102,7 +102,7 @@ Create strategy for backward scanning - mirrors forward by reversing pieces.
 >   , stratUpdateOffset = \delta offset -> offset - delta
 >   , stratCombineLines = flip (++)  -- Prepend to beginning
 >   , stratPartialSide = RightPartial  -- Reading backward from EOF, partial on right
->   , stratFinalOrder = reverse  -- Pieces are in reverse order, need to reverse back
+>   , stratFinalOrder = id  -- After reversal + RightPartial, already in file order!
 >   , stratCanonicalizeChunk = \chunk state ->
 >       let isEOFChunk = ssOffset state >= ssFileSize state
 >           needsLF = isEOFChunk && not (ssEndsWithLF state) && not (BS.null chunk)
@@ -114,9 +114,9 @@ Create strategy for backward scanning - mirrors forward by reversing pieces.
 >                          else tail ps
 >       in dropEmpty reversed  -- Reverse and drop trailing empty
 >   , stratCombinePartial = \partial piece -> BS.append partial piece  -- Same as forward!
->   , stratGetEdgePiece = head                    -- Same as forward!
->   , stratGetMiddle = tail . init                -- Same as forward!
->   , stratGetNewPartial = last                   -- Same as forward!
+>   , stratGetEdgePiece = \ps -> if null ps then BS.empty else head ps  -- Same as forward!
+>   , stratGetMiddle = \ps -> if length ps < 2 then [] else tail (init ps)  -- Same as forward!
+>   , stratGetNewPartial = \ps -> if null ps then BS.empty else last ps  -- Same as forward!
 >   }
 
 Get strategy for a given direction.
@@ -182,8 +182,13 @@ Canonicalizes input by treating missing trailing newline as present.
 >   endsWithLF <- checkFileEndsWithLF fileSize readFn
 >   let initialState = initScanState strat fileSize endsWithLF
 >   finalState <- scanLoop strat readFn count initialState
->   let allLines = prepareFinalLines strat (ssEndsWithLF finalState) (ssPartial finalState) (ssLines finalState)
->   return $ take count allLines
+>   let reachedEOF = not (stratHasMore strat finalState)  -- No more file data
+>   let allLines = prepareFinalLines strat reachedEOF (ssEndsWithLF finalState) (ssPartial finalState) (ssLines finalState)
+>   -- For backward, we want the LAST count lines; for forward, the FIRST count lines
+>   let result = case dir of
+>         Forward  -> take count allLines
+>         Backward -> drop (max 0 (length allLines - count)) allLines
+>   return result
 
 Main scanning loop - now fully generic using strategy.
 
@@ -241,10 +246,9 @@ The last piece is empty because canonical chunks end with LF.
 >   let edgePiece = stratGetEdgePiece strat pieces
 >       edgeLine = stratCombinePartial strat partial edgePiece
 >       middleLines = stratGetMiddle strat pieces
->       allLines = if BS.null edgeLine then middleLines else 
->                    case stratPartialSide strat of
->                      LeftPartial  -> edgeLine : middleLines
->                      RightPartial -> middleLines ++ [edgeLine]
+>       allLines = case stratPartialSide strat of
+>                    LeftPartial  -> edgeLine : middleLines
+>                    RightPartial -> middleLines ++ [edgeLine]
 >       newPartial = stratGetNewPartial strat pieces
 >   in (allLines, newPartial)
 
@@ -252,10 +256,10 @@ Prepare final result with proper ordering and decoding.
 Prepare final result with proper ordering and decoding.
 In canonical format, partial should be empty at end.
 
-> prepareFinalLines :: ScanStrategy -> Bool -> BS.ByteString -> [BS.ByteString] -> [T.Text]
-> prepareFinalLines strat _endsWithLF partial lns =
->   let -- Add partial line if it exists (shouldn't happen in canonical format)
->       allLines = if BS.null partial
+> prepareFinalLines :: ScanStrategy -> Bool -> Bool -> BS.ByteString -> [BS.ByteString] -> [T.Text]
+> prepareFinalLines strat reachedEOF _endsWithLF partial lns =
+>   let -- Add partial line if it exists AND we reached EOF
+>       allLines = if BS.null partial || not reachedEOF
 >                    then lns
 >                    else case stratPartialSide strat of
 >                           LeftPartial  -> lns ++ [partial]
