@@ -23,6 +23,12 @@ withTempFile content action =
     hClose h
     action path
 
+-- Helper: scan with auto-detected file size
+scanLinesAuto :: Direction -> FilePath -> Int -> IO [T.Text]
+scanLinesAuto dir path count = do
+  size <- fromIntegral . BS.length <$> BS.readFile path
+  scanLines dir size (readFromFile path) count
+
 main :: IO ()
 main = hspec spec
 
@@ -37,12 +43,12 @@ spec = describe "HaFileViewer.BidirectionalScanner" $ do
     
     it "handles file with trailing newline" $
       withTempFile "a\nb\nc\n" $ \path -> do
-        result <- scanLines Forward 6 (readFromFile path) 3
+        result <- scanLinesAuto Forward path 3
         result `shouldBe` ["a", "b", "c"]
     
     it "handles file without trailing newline" $
       withTempFile "a\nb\nc" $ \path -> do
-        result <- scanLines Forward 5 (readFromFile path) 3
+        result <- scanLinesAuto Forward path 3
         result `shouldBe` ["a", "b", "c"]
     
     it "handles single line with newline" $
