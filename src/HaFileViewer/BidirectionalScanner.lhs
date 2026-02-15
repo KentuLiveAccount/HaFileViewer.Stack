@@ -57,6 +57,7 @@ Bundle of functions that vary by direction. This makes the symmetry explicit.
 >   , stratPartialSide       :: PartialSide
 >   , stratFinalOrder        :: forall a. [a] -> [a]
 >   , stratCanonicalizeChunk :: BS.ByteString -> ScanState -> BS.ByteString
+>   , stratOrderPieces       :: [BS.ByteString] -> [BS.ByteString]
 >   , stratCombinePartial    :: BS.ByteString -> BS.ByteString -> BS.ByteString
 >   , stratGetEdgePiece      :: [BS.ByteString] -> BS.ByteString
 >   , stratGetMiddle         :: [BS.ByteString] -> [BS.ByteString]
@@ -81,13 +82,14 @@ Create strategy for forward scanning.
 >       let isLastChunk = ssOffset state + fromIntegral (BS.length chunk) >= ssFileSize state
 >           needsLF = isLastChunk && not (ssEndsWithLF state) && not (BS.null chunk)
 >       in if needsLF then BS.snoc chunk lfByte else chunk
+>   , stratOrderPieces = id  -- Keep pieces in file order
 >   , stratCombinePartial = \partial piece -> BS.append partial piece  -- partial on left
 >   , stratGetEdgePiece = head                    -- first piece combines with partial
 >   , stratGetMiddle = tail . init                -- drop first and last
 >   , stratGetNewPartial = last                   -- last piece is new partial
 >   }
 
-Create strategy for backward scanning.
+Create strategy for backward scanning - mirrors forward by reversing pieces.
 
 > backwardStrategy :: ScanStrategy
 > backwardStrategy = ScanStrategy
@@ -99,16 +101,22 @@ Create strategy for backward scanning.
 >       in (startOffset, size)
 >   , stratUpdateOffset = \delta offset -> offset - delta
 >   , stratCombineLines = flip (++)  -- Prepend to beginning
->   , stratPartialSide = RightPartial
->   , stratFinalOrder = reverse
+>   , stratPartialSide = LeftPartial  -- After reversing, partial is on left
+>   , stratFinalOrder = id  -- No reversal - pieces are reversed
 >   , stratCanonicalizeChunk = \chunk state ->
 >       let isEOFChunk = ssOffset state >= ssFileSize state
 >           needsLF = isEOFChunk && not (ssEndsWithLF state) && not (BS.null chunk)
 >       in if needsLF then BS.snoc chunk lfByte else chunk
->   , stratCombinePartial = \piece partial -> BS.append piece partial  -- partial on right
->   , stratGetEdgePiece = last . init             -- last real piece combines with partial
->   , stratGetMiddle = init . tail . init         -- drop first, trailing empty, then last real
->   , stratGetNewPartial = head                   -- first piece is new partial
+>   , stratOrderPieces = \pieces ->
+>       let reversed = reverse pieces
+>           dropEmpty ps = if null ps || not (BS.null (head ps))
+>                          then ps
+>                          else tail ps
+>       in dropEmpty reversed  -- Reverse and drop trailing empty
+>   , stratCombinePartial = \partial piece -> BS.append partial piece  -- Same as forward!
+>   , stratGetEdgePiece = head                    -- Same as forward!
+>   , stratGetMiddle = tail . init                -- Same as forward!
+>   , stratGetNewPartial = last                   -- Same as forward!
 >   }
 
 Get strategy for a given direction.
@@ -200,7 +208,9 @@ Assumes canonical format (as if file ends with newline).
 > processChunk strat chunk state =
 >   let -- Canonicalize chunk if it's the last/first chunk
 >       canonicalChunk = stratCanonicalizeChunk strat chunk state
->       pieces = map stripCR $ BS.split lfByte canonicalChunk
+>       rawPieces = map stripCR $ BS.split lfByte canonicalChunk
+>       -- Order pieces (reverse for backward)
+>       pieces = stratOrderPieces strat rawPieces
 >       (newLines, newPartial) = extractLinesCanonical strat pieces (ssPartial state)
 >       offsetDelta = fromIntegral (BS.length chunk)  -- Use original chunk length
 >       newOffset = stratUpdateOffset strat offsetDelta (ssOffset state)

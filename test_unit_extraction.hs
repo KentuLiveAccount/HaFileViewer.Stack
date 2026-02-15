@@ -19,6 +19,8 @@ main = do
   
   putStrLn "\n=== Testing Forward extraction (full) ==="
   testForwardExtraction
+  
+  testBackwardExtraction
 
 -- Test CR stripping
 testStripCR :: IO ()
@@ -64,8 +66,36 @@ testCanonical = do
   putStrLn $ "  \"a\\nb\\nc\\n\" -> " ++ show (BS.split lfByte canonical)
   putStrLn $ "  Last piece is empty? " ++ show (last (BS.split lfByte canonical) == "")
 
--- Test forward extraction logic manually
-testForwardExtraction :: IO ()
+-- Test backward extraction logic manually
+testBackwardExtraction :: IO ()
+testBackwardExtraction = do
+  putStrLn "\n=== Testing Backward extraction ==="
+  putStrLn "\nFrom \"a\\n\\nb\\n\" (canonical)"
+  let pieces = ["a", "", "b", ""]
+      partial = ""
+  
+  putStrLn $ "Pieces (file order): " ++ show pieces
+  putStrLn $ "Partial: " ++ show partial
+  
+  -- Current backward strategy (from code)
+  putStrLn "\nCurrent backward strategy (broken):"
+  let edgePiece = last (init pieces)  -- last . init
+      edgeLine = BS.append edgePiece partial  -- piece + partial
+      middleLines = init (tail (init pieces))  -- init . tail . init
+      newPartial = head pieces
+  
+  putStrLn $ "  Edge piece (last . init): " ++ show edgePiece
+  putStrLn $ "  Edge line (piece + partial): " ++ show edgeLine
+  putStrLn $ "  Middle (init . tail . init): " ++ show middleLines
+  putStrLn $ "  New partial (head): " ++ show newPartial
+  
+  -- After prepend to empty list and adding partial
+  let allLines = middleLines ++ [edgeLine]  -- RightPartial
+      withPartial = partial : allLines  -- Add partial at front
+  putStrLn $ "  All lines: " ++ show allLines
+  putStrLn $ "  With partial: " ++ show withPartial
+  putStrLn $ "  After reverse: " ++ show (reverse withPartial)
+  putStrLn $ "Expected: [\"a\", \"\", \"b\"]"
 testForwardExtraction = do
   putStrLn "\nFrom \"a\\n\\nb\\n\" (canonical)"
   let pieces = ["a", "", "b", ""]
