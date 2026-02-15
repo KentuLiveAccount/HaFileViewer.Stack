@@ -49,6 +49,11 @@ Strategy Pattern
 
 Bundle of functions that vary by direction. This makes the symmetry explicit.
 
+Common extraction logic that both strategies use:
+
+> extractMiddlePieces :: [a] -> [a]
+> extractMiddlePieces ps = if length ps < 2 then [] else tail (init ps)
+
 > data ScanStrategy = ScanStrategy
 >   { stratHasMore           :: ScanState -> Bool
 >   , stratCalcRead          :: ChunkSize -> ScanState -> (Offset, Integer)
@@ -85,7 +90,7 @@ Create strategy for forward scanning.
 >   , stratOrderPieces = id  -- Keep pieces in file order
 >   , stratCombinePartial = \partial piece -> BS.append partial piece  -- partial on left
 >   , stratGetEdgePiece = head                    -- first piece combines with partial
->   , stratGetMiddle = \ps -> if length ps < 2 then [] else tail (init ps)  -- drop first and last
+>   , stratGetMiddle = extractMiddlePieces       -- No transformation needed
 >   , stratGetNewPartial = \ps -> if null ps then BS.empty else last ps  -- last piece is new partial
 >   }
 
@@ -115,7 +120,7 @@ Create strategy for backward scanning - mirrors forward by reversing pieces.
 >       in dropEmpty reversed  -- Reverse and drop trailing empty
 >   , stratCombinePartial = \partial piece -> BS.append partial piece  -- Same as forward!
 >   , stratGetEdgePiece = \ps -> if null ps then BS.empty else head ps  -- Same as forward!
->   , stratGetMiddle = \ps -> if length ps < 2 then [] else reverse (tail (init ps))  -- Reverse middle for file order!
+>   , stratGetMiddle = reverse . extractMiddlePieces  -- Reverse middle to restore file order!
 >   , stratGetNewPartial = \ps -> if null ps then BS.empty else last ps  -- Same as forward!
 >   }
 
