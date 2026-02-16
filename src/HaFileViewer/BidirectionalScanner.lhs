@@ -1,9 +1,36 @@
 Bidirectional Scanner - Symmetric Forward/Backward Line Scanning
 ================================================================
 
-Experimental module exploring the symmetry between forward and backward scanning.
-The key insight: backward scanning from EOF is the inverse of forward scanning from 0,
-except for edge cases (EOL at beginning/end of file).
+This module implements efficient line-by-line scanning in both directions
+using a strategy pattern to capture direction-dependent operations.
+
+Key Design Principles:
+
+1. **Canonical Format**: All files are treated as if they end with a newline (LF).
+   Non-canonical files have LF added virtually during processing.
+
+2. **Chunk-based Reading**: Files are read in chunks to handle arbitrarily large files.
+   Incomplete lines at chunk boundaries are carried over as "partials".
+
+3. **Strategy Pattern**: All direction-dependent logic is encapsulated in ScanStrategy,
+   making the symmetric and asymmetric aspects explicit.
+
+4. **Output Symmetry**: Both directions return lines in file order:
+   - Forward: first N lines
+   - Backward: last N lines
+   This requires strategic asymmetry in processing (e.g., reversing middle pieces).
+
+5. **Platform Independence**: Handles both Unix (LF) and Windows (CRLF) line endings
+   via stripCR function.
+
+Processing Pipeline:
+  1. Read chunk from file
+  2. Canonicalize (ensure ends with LF)
+  3. Split on LF → pieces
+  4. Order pieces (forward: id, backward: reverse)
+  5. Extract lines from pieces (edge + middle + partial)
+  6. Accumulate lines across chunks
+  7. Final ordering and decoding
 
 Module Header
 -------------
@@ -54,19 +81,70 @@ Common extraction logic that both strategies use:
 > extractMiddlePieces :: [a] -> [a]
 > extractMiddlePieces ps = if length ps < 2 then [] else tail (init ps)
 
+ScanStrategy encapsulates all direction-dependent operations.
+Each field handles a specific aspect of the scanning process:
+
 > data ScanStrategy = ScanStrategy
->   { stratHasMore           :: ScanState -> Bool
+>   { -- ** Loop control
+>     stratHasMore           :: ScanState -> Bool
+>     -- ^ Determines if there's more data to read from file.
+>     -- Forward: offset < fileSize (reading left-to-right)
+>     -- Backward: offset > 0 (reading right-to-left)
+>   
 >   , stratCalcRead          :: ChunkSize -> ScanState -> (Offset, Integer)
+>     -- ^ Calculates where to read next chunk and how much.
+>     -- Forward: reads from current offset forward
+>     -- Backward: reads from (offset - chunkSize) to offset
+>   
 >   , stratUpdateOffset      :: Integer -> Offset -> Offset
+>     -- ^ Updates file position after reading a chunk.
+>     -- Forward: offset + delta (move right)
+>     -- Backward: offset - delta (move left)
+>   
+>     -- ** Line accumulation
 >   , stratCombineLines      :: [BS.ByteString] -> [BS.ByteString] -> [BS.ByteString]
+>     -- ^ Combines accumulated lines with newly extracted lines.
+>     -- Forward: (++) appends to end (chronological order)
+>     -- Backward: flip (++) prepends to beginning (reverse chronological)
+>   
 >   , stratPartialSide       :: PartialSide
+>     -- ^ Which edge of chunk carries the partial line.
+>     -- Forward: LeftPartial (incomplete line at left edge continues from prev chunk)
+>     -- Backward: RightPartial (after reversal, partial is logically on right)
+>   
 >   , stratFinalOrder        :: forall a. [a] -> [a]
+>     -- ^ Final transformation to ensure file order output.
+>     -- Forward: id (already in file order)
+>     -- Backward: id (reversal of middle pieces ensures file order)
+>   
+>     -- ** Chunk processing
 >   , stratCanonicalizeChunk :: BS.ByteString -> ScanState -> BS.ByteString
+>     -- ^ Ensures chunk ends with LF for canonical processing.
+>     -- Adds LF to last chunk if file doesn't end with newline.
+>   
 >   , stratOrderPieces       :: [BS.ByteString] -> [BS.ByteString]
+>     -- ^ Orders pieces after BS.split for extraction.
+>     -- Forward: id (keep file order)
+>     -- Backward: reverse and drop trailing empty (process right-to-left)
+>   
+>     -- ** Line extraction (operates on ordered pieces)
 >   , stratCombinePartial    :: BS.ByteString -> BS.ByteString -> BS.ByteString
+>     -- ^ Combines partial from previous chunk with edge piece of current chunk.
+>     -- Both: BS.append (concatenate strings)
+>   
 >   , stratGetEdgePiece      :: [BS.ByteString] -> BS.ByteString
+>     -- ^ Extracts the edge piece that combines with partial.
+>     -- Both: head (first piece after ordering)
+>   
 >   , stratGetMiddle         :: [BS.ByteString] -> [BS.ByteString]
+>     -- ^ Extracts complete lines from middle of pieces.
+>     -- Forward: extractMiddlePieces (drop first and last)
+>     -- Backward: reverse . extractMiddlePieces (restore file order)
+>     --   Note: This reverse compensates for stratOrderPieces' reverse
+>   
 >   , stratGetNewPartial     :: [BS.ByteString] -> BS.ByteString
+>     -- ^ Extracts new partial for next chunk.
+>     -- Both: last (last piece is incomplete line or empty)
 >   }
 
 Create strategy for forward scanning.
