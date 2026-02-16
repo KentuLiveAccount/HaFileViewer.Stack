@@ -81,8 +81,17 @@ Common extraction logic that both strategies use:
 > extractMiddlePieces :: [a] -> [a]
 > extractMiddlePieces ps = if length ps < 2 then [] else tail (init ps)
 
+> combinePartial :: BS.ByteString -> BS.ByteString -> BS.ByteString
+> combinePartial partial piece = BS.append partial piece
+
+> getEdgePiece :: [BS.ByteString] -> BS.ByteString
+> getEdgePiece ps = if null ps then BS.empty else head ps
+
+> getNewPartial :: [BS.ByteString] -> BS.ByteString
+> getNewPartial ps = if null ps then BS.empty else last ps
+
 ScanStrategy encapsulates all direction-dependent operations.
-Each field handles a specific aspect of the scanning process:
+Only functions that differ between forward and backward are included.
 
 > data ScanStrategy = ScanStrategy
 >   { -- ** Loop control
@@ -128,23 +137,12 @@ Each field handles a specific aspect of the scanning process:
 >     -- Backward: reverse and drop trailing empty (process right-to-left)
 >   
 >     -- ** Line extraction (operates on ordered pieces)
->   , stratCombinePartial    :: BS.ByteString -> BS.ByteString -> BS.ByteString
->     -- ^ Combines partial from previous chunk with edge piece of current chunk.
->     -- Both: BS.append (concatenate strings)
->   
->   , stratGetEdgePiece      :: [BS.ByteString] -> BS.ByteString
->     -- ^ Extracts the edge piece that combines with partial.
->     -- Both: head (first piece after ordering)
->   
 >   , stratGetMiddle         :: [BS.ByteString] -> [BS.ByteString]
 >     -- ^ Extracts complete lines from middle of pieces.
 >     -- Forward: extractMiddlePieces (drop first and last)
 >     -- Backward: reverse . extractMiddlePieces (restore file order)
 >     --   Note: This reverse compensates for stratOrderPieces' reverse
->   
->   , stratGetNewPartial     :: [BS.ByteString] -> BS.ByteString
->     -- ^ Extracts new partial for next chunk.
->     -- Both: last (last piece is incomplete line or empty)
+>     -- Common functions (used by both): combinePartial, getEdgePiece, getNewPartial
 >   }
 
 Create strategy for forward scanning.
@@ -166,10 +164,7 @@ Create strategy for forward scanning.
 >           needsLF = isLastChunk && not (ssEndsWithLF state) && not (BS.null chunk)
 >       in if needsLF then BS.snoc chunk lfByte else chunk
 >   , stratOrderPieces = id  -- Keep pieces in file order
->   , stratCombinePartial = \partial piece -> BS.append partial piece  -- partial on left
->   , stratGetEdgePiece = head                    -- first piece combines with partial
 >   , stratGetMiddle = extractMiddlePieces       -- No transformation needed
->   , stratGetNewPartial = \ps -> if null ps then BS.empty else last ps  -- last piece is new partial
 >   }
 
 Create strategy for backward scanning - mirrors forward by reversing pieces.
@@ -196,10 +191,7 @@ Create strategy for backward scanning - mirrors forward by reversing pieces.
 >                          then ps
 >                          else tail ps
 >       in dropEmpty reversed  -- Reverse and drop trailing empty
->   , stratCombinePartial = \partial piece -> BS.append partial piece  -- Same as forward!
->   , stratGetEdgePiece = \ps -> if null ps then BS.empty else head ps  -- Same as forward!
 >   , stratGetMiddle = reverse . extractMiddlePieces  -- Reverse middle to restore file order!
->   , stratGetNewPartial = \ps -> if null ps then BS.empty else last ps  -- Same as forward!
 >   }
 
 Get strategy for a given direction.
@@ -316,7 +308,7 @@ Strip trailing CR to handle both Unix (LF) and Windows (CRLF) line endings.
 >   | BS.last bs == 13 = BS.init bs  -- 13 is '\r'
 >   | otherwise = bs
 
-Extract lines from canonicalized chunks - now fully generic using strategy.
+Extract lines from canonicalized chunks - uses common functions and strategy.
 Assumes chunk format after split: [piece0, piece1, ..., pieceN, ""]
 The last piece is empty because canonical chunks end with LF.
 
@@ -326,13 +318,13 @@ The last piece is empty because canonical chunks end with LF.
 >                       -> ([BS.ByteString], BS.ByteString)  -- ^ (Lines, new partial)
 > extractLinesCanonical _strat [] partial = ([], partial)  -- Empty chunk
 > extractLinesCanonical strat pieces partial =
->   let edgePiece = stratGetEdgePiece strat pieces
->       edgeLine = stratCombinePartial strat partial edgePiece
+>   let edgePiece = getEdgePiece pieces
+>       edgeLine = combinePartial partial edgePiece
 >       middleLines = stratGetMiddle strat pieces
 >       allLines = case stratPartialSide strat of
 >                    LeftPartial  -> edgeLine : middleLines
 >                    RightPartial -> middleLines ++ [edgeLine]
->       newPartial = stratGetNewPartial strat pieces
+>       newPartial = getNewPartial pieces
 >   in (allLines, newPartial)
 
 Prepare final result with proper ordering and decoding.
