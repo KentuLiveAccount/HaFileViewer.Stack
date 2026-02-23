@@ -9,6 +9,7 @@ library:
     - HaFileViewer.LineMap
     - HaFileViewer.IndexedFileReader
     - HaFileViewer.BidirectionalScanner
+    - HaFileViewer.LineCache
   source-dirs: src
   ghc-options: -Wall
   dependencies:
@@ -90,4 +91,16 @@ tests:
       - text
       - bytestring
       - mmap
+
+  ha-file-viewer-test4:
+    main: Spec.hs
+    source-dirs: test4
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+    dependencies:
+      - ha-file-viewer
+      - base
+      - hspec
+      - temporary
+      - directory
+      - text
 

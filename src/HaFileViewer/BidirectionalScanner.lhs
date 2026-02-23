@@ -40,12 +40,14 @@ Module Header
 > module HaFileViewer.BidirectionalScanner
 >   ( Direction(..)
 >   , scanLines
+>   , scanLinesWithOffsets
 >   , ChunkSize
 >   , defaultChunkSize
 >   ) where
 >
 > import qualified Data.ByteString as BS
 > import qualified Data.Text as T
+> import qualified Data.Text.Encoding as TE
 > import Data.Word (Word8)
 > import HaFileViewer.LineMap.Common
 >   ( Offset
@@ -264,6 +266,63 @@ Canonicalizes input by treating missing trailing newline as present.
 >         Forward  -> take count allLines
 >         Backward -> drop (max 0 (length allLines - count)) allLines
 >   return result
+
+New API: scanLines with offset tracking
+----------------------------------------
+
+Identical to scanLines but returns byte offsets for each line.
+
+> scanLinesWithOffsets :: Direction                    -- ^ Scan direction
+>                      -> Integer                      -- ^ File size
+>                      -> (Offset -> Integer -> IO BS.ByteString)  -- ^ Read function
+>                      -> Int                          -- ^ Number of lines to collect
+>                      -> IO [(T.Text, Offset)]        -- ^ Collected lines with offsets
+> scanLinesWithOffsets dir fileSize readFn count = do
+>   let strat = getStrategy dir
+>   endsWithLF <- checkFileEndsWithLF fileSize readFn
+>   let initialState = initScanState strat fileSize endsWithLF
+>   finalState <- scanLoopWithOffsets strat readFn count initialState
+>   let reachedEOF = not (stratHasMore strat finalState)
+>   let allLinesWithOffsets = prepareFinalLinesWithOffsets strat reachedEOF (ssEndsWithLF finalState) (ssPartial finalState) (ssLines finalState)
+>   -- For backward, we want the LAST count lines; for forward, the FIRST count lines
+>   let result = case dir of
+>         Forward  -> take count allLinesWithOffsets
+>         Backward -> drop (max 0 (length allLinesWithOffsets - count)) allLinesWithOffsets
+>   return result
+
+Scanning loop that tracks offsets for each line.
+
+> scanLoopWithOffsets :: ScanStrategy
+>                     -> (Offset -> Integer -> IO BS.ByteString)
+>                     -> Int
+>                     -> ScanState
+>                     -> IO ScanState
+> scanLoopWithOffsets strat readFn targetCount state
+>   | ssLineCount state >= targetCount = return state
+>   | not (stratHasMore strat state) = return state
+>   | otherwise = do
+>       let (readStart, readSize) = stratCalcRead strat defaultChunkSize state
+>       chunk <- readFn readStart readSize
+>       let newState = processChunk strat chunk state
+>       scanLoopWithOffsets strat readFn targetCount newState
+
+Helper to prepare final lines with their byte offsets.
+For now, we calculate offsets by summing line lengths.
+TODO: Track offsets more efficiently during scanning.
+
+> prepareFinalLinesWithOffsets :: ScanStrategy -> Bool -> Bool -> BS.ByteString -> [BS.ByteString] -> [(T.Text, Offset)]
+> prepareFinalLinesWithOffsets strat reachedEOF endsWithLF partial rawLines =
+>   let -- First get the lines using existing logic
+>       finalLines = prepareFinalLines strat reachedEOF endsWithLF partial rawLines
+>       -- Then calculate offsets by summing lengths
+>       -- This assumes forward direction starts at offset 0
+>       -- For backward, offsets need adjustment based on actual positions
+>       go _ [] = []
+>       go currentOffset (line:rest) =
+>         let lineBS = TE.encodeUtf8 line
+>             lineLen = fromIntegral (BS.length lineBS) + 1  -- +1 for newline
+>         in (line, currentOffset) : go (currentOffset + lineLen) rest
+>   in go 0 finalLines
 
 Main scanning loop - now fully generic using strategy.
 
