@@ -18,6 +18,8 @@ library:
     - vector
     - mmap
     - containers
+    - time
+    - directory
     
 
 executables:
