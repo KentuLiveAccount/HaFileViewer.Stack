@@ -342,6 +342,18 @@ Main scanning loop - now fully generic using strategy.
 >       let newState = processChunk strat chunk state
 >       scanLoop strat readFn targetCount newState
 
+Calculate byte offset for the start of each piece after splitting on LF.
+Each piece is separated by LF (1 byte), so offsets account for these delimiters.
+
+> calculatePieceOffsets :: Offset -> [BS.ByteString] -> [Offset]
+> calculatePieceOffsets _startOffset [] = []
+> calculatePieceOffsets startOffset pieces =
+>   let go _ [] = []
+>       go currentOffset (piece:rest) =
+>         let nextOffset = currentOffset + fromIntegral (BS.length piece) + 1  -- +1 for LF
+>         in currentOffset : go nextOffset rest
+>   in go startOffset pieces
+
 Process a chunk using strategy - now fully generic.
 Assumes canonical format (as if file ends with newline).
 
