@@ -361,8 +361,13 @@ Assumes canonical format (as if file ends with newline).
 >   let -- Canonicalize chunk if it's the last/first chunk
 >       canonicalChunk = stratCanonicalizeChunk strat chunk state
 >       rawPieces = map stripCR $ BS.split lfByte canonicalChunk
->       -- Calculate byte offsets for each raw piece (before ordering)
->       rawPieceOffsets = calculatePieceOffsets (ssOffset state) rawPieces
+>       offsetDelta = fromIntegral (BS.length chunk)  -- Use original chunk length
+>       -- Calculate byte offset where this chunk STARTS in the file
+>       chunkStartOffset = case stratPartialSide strat of
+>                            LeftPartial  -> ssOffset state  -- Forward: ssOffset is chunk start
+>                            RightPartial -> ssOffset state - offsetDelta  -- Backward: ssOffset is chunk end, subtract size
+>       -- Calculate byte offsets for each raw piece (from chunk start)
+>       rawPieceOffsets = calculatePieceOffsets chunkStartOffset rawPieces
 >       -- Order pieces (reverse for backward)
 >       pieces = stratOrderPieces strat rawPieces
 >       -- Apply same ordering to offsets manually (reverse for backward, drop trailing if needed)
@@ -376,7 +381,6 @@ Assumes canonical format (as if file ends with newline).
 >                             else dropEmpty reversed
 >       (newLines, newLineOffsets, newPartial, newPartialOffset) = 
 >         extractLinesCanonical strat pieceOffsets pieces (ssPartial state) (ssPartialOffset state)
->       offsetDelta = fromIntegral (BS.length chunk)  -- Use original chunk length
 >       newOffset = stratUpdateOffset strat offsetDelta (ssOffset state)
 >       -- Combine offsets using the same logic as stratCombineLines
 >       combinedOffsets = case stratPartialSide strat of
