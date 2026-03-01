@@ -5,6 +5,26 @@ This module provides the main line caching component for efficient
 access to large files. It internally maintains both a sparse index
 (for seeking) and a content cache (for repeated access).
 
+Architecture Overview:
+
+1. **Sparse Index**: Maps line numbers to byte offsets for fast seeking.
+   Built incrementally as lines are scanned. Enables O(log n) random access.
+
+2. **Content Cache**: LRU cache storing (startLine, count) → [lines].
+   Evicts least recently used entries when full. Configured via CacheConfig.
+
+3. **File Modification Tracking**: Checks file modification time on each access.
+   Invalidates cache and rebuilds index if file changes.
+
+4. **BidirectionalScanner Integration**: Uses scanLinesWithOffsets to get
+   correct byte offsets during scanning (not recalculated afterward).
+
+Performance Characteristics:
+- Sequential access: O(1) with cache hits, O(n) on cache miss
+- Random access: O(log n) with sparse index for seeking, then O(n) for scan
+- Memory: O(cache size) for content + O(lines/granularity) for sparse index
+- Large files (100MB+): Fast random access, bounded memory usage
+
 > module HaFileViewer.LineCache
 >   ( -- * Types
 >     LineCache

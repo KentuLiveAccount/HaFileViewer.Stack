@@ -23,14 +23,23 @@ Key Design Principles:
 5. **Platform Independence**: Handles both Unix (LF) and Windows (CRLF) line endings
    via stripCR function.
 
+6. **Offset Tracking**: scanLinesWithOffsets tracks byte offsets DURING scanning,
+   not after. This is critical because:
+   - Offsets are lost during BS.split operations
+   - Partial lines carry offsets between chunks
+   - UTF-8 re-encoding would give wrong byte counts
+   - Backward scans must calculate offsets from chunk start, not end
+
 Processing Pipeline:
   1. Read chunk from file
   2. Canonicalize (ensure ends with LF)
   3. Split on LF → pieces
-  4. Order pieces (forward: id, backward: reverse)
-  5. Extract lines from pieces (edge + middle + partial)
-  6. Accumulate lines across chunks
-  7. Final ordering and decoding
+  4. Calculate piece offsets (byte position of each piece in file)
+  5. Order pieces (forward: id, backward: reverse)
+  6. Extract lines from pieces (edge + middle + partial)
+  7. Track offsets parallel to lines
+  8. Accumulate lines across chunks
+  9. Final ordering and decoding
 
 Module Header
 -------------
@@ -207,12 +216,18 @@ Scanner State
 
 Tracks position and partial line across chunk boundaries.
 
+OFFSET TRACKING INVARIANTS:
+- ssLineOffsets is parallel to ssLines (same length, corresponding positions)
+- All offsets are in file order (monotonically increasing), even for backward scans
+- ssPartialOffset tracks where the partial line started in the file
+- When combining partial + edgePiece, ALWAYS use partial's offset (not edge's)
+
 > data ScanState = ScanState
 >   { ssOffset       :: Offset          -- Current read position
 >   , ssPartial      :: BS.ByteString   -- Partial line from previous chunk
->   , ssPartialOffset :: Offset         -- Byte offset of partial line
+>   , ssPartialOffset :: Offset         -- Byte offset of partial line START
 >   , ssLines        :: [BS.ByteString] -- Accumulated lines (in scan order)
->   , ssLineOffsets  :: [Offset]        -- Byte offsets (parallel to ssLines)
+>   , ssLineOffsets  :: [Offset]        -- Byte offsets (parallel to ssLines, file order)
 >   , ssLineCount    :: Int             -- Count of lines (avoids O(n) length calls)
 >   , ssFileSize     :: Integer         -- Total file size
 >   , ssEndsWithLF   :: Bool            -- True if file ends with newline
@@ -313,6 +328,15 @@ Scanning loop that tracks offsets for each line.
 Helper to prepare final lines with their byte offsets.
 Now uses stored offsets directly instead of recalculating.
 
+WHY NOT RECALCULATE?
+Previously, we recalculated offsets by encoding Text back to ByteString.
+This was WRONG because:
+1. UTF-8 encoding might differ from original bytes (normalization)
+2. Partial line offsets are lost (no way to know where partial started)
+3. Accumulates rounding errors across chunks
+
+Solution: Store offsets DURING scanning, use them here without modification.
+
 > prepareFinalLinesWithOffsets :: ScanStrategy -> Bool -> Bool -> BS.ByteString -> Offset -> [BS.ByteString] -> [Offset] -> [(T.Text, Offset)]
 > prepareFinalLinesWithOffsets strat reachedEOF endsWithLF partial partialOffset rawLines rawOffsets =
 >   let -- First get the lines using existing logic
@@ -344,6 +368,9 @@ Main scanning loop - now fully generic using strategy.
 Calculate byte offset for the start of each piece after splitting on LF.
 Each piece is separated by LF (1 byte), so offsets account for these delimiters.
 
+CRITICAL: startOffset must be the byte position where the chunk STARTS in the file.
+For backward scans: ssOffset points to chunk END after reading, so subtract chunk size!
+
 > calculatePieceOffsets :: Offset -> [BS.ByteString] -> [Offset]
 > calculatePieceOffsets _startOffset [] = []
 > calculatePieceOffsets startOffset pieces =
@@ -356,6 +383,14 @@ Each piece is separated by LF (1 byte), so offsets account for these delimiters.
 Process a chunk using strategy - now fully generic.
 Assumes canonical format (as if file ends with newline).
 
+OFFSET TRACKING CRITICAL BUG FIX:
+For backward scans, after reading a chunk, ssOffset points to where the read STARTED
+(the chunk END in file). To calculate piece offsets, we need the chunk START.
+Solution: Subtract offsetDelta to get chunk start position.
+
+This was the most subtle bug in the implementation - backward scans would have
+all offsets wrong by chunk size without this correction.
+
 > processChunk :: ScanStrategy -> BS.ByteString -> ScanState -> ScanState
 > processChunk strat chunk state =
 >   let -- Canonicalize chunk if it's the last/first chunk
@@ -363,9 +398,10 @@ Assumes canonical format (as if file ends with newline).
 >       rawPieces = map stripCR $ BS.split lfByte canonicalChunk
 >       offsetDelta = fromIntegral (BS.length chunk)  -- Use original chunk length
 >       -- Calculate byte offset where this chunk STARTS in the file
+>       -- CRITICAL: For backward, ssOffset is chunk END, must subtract to get START
 >       chunkStartOffset = case stratPartialSide strat of
 >                            LeftPartial  -> ssOffset state  -- Forward: ssOffset is chunk start
->                            RightPartial -> ssOffset state - offsetDelta  -- Backward: ssOffset is chunk end, subtract size
+>                            RightPartial -> ssOffset state - offsetDelta  -- Backward: subtract to get start
 >       -- Calculate byte offsets for each raw piece (from chunk start)
 >       rawPieceOffsets = calculatePieceOffsets chunkStartOffset rawPieces
 >       -- Order pieces (reverse for backward)
@@ -407,19 +443,30 @@ Assumes chunk format after split: [piece0, piece1, ..., pieceN, ""]
 The last piece is empty because canonical chunks end with LF.
 Now tracks byte offsets parallel to lines.
 
+PARTIAL OFFSET PRESERVATION (Critical Invariant):
+When a line spans multiple chunks, the FIRST chunk determines its offset.
+Example: "hello" at offset 100, next chunk starts "world\n"
+  - Combined line "helloworld" must have offset 100 (not offset of "world")
+  - This is why we use partialOffset, not edgeOffset!
+
+OFFSET ORDERING INVARIANT:
+All returned offsets MUST be in file order (monotonically increasing).
+For backward scans, pieces are reversed but offsets are adjusted to maintain file order.
+
 > extractLinesCanonical :: ScanStrategy
 >                       -> [Offset]          -- ^ Byte offsets for each piece
 >                       -> [BS.ByteString]   -- ^ Pieces after split on LF
 >                       -> BS.ByteString     -- ^ Partial from previous chunk
->                       -> Offset            -- ^ Offset of partial line
+>                       -> Offset            -- ^ Offset of partial line START
 >                       -> ([BS.ByteString], [Offset], BS.ByteString, Offset)  -- ^ (Lines, offsets, new partial, partial offset)
 > extractLinesCanonical _strat _ [] partial partialOffset = ([], [], partial, partialOffset)  -- Empty chunk
 > extractLinesCanonical strat pieceOffsets pieces partial partialOffset =
 >   let edgePiece = getEdgePiece pieces
 >       edgeOffset = if null pieceOffsets then partialOffset else head pieceOffsets
->       -- When combining partial + edge, use partial's offset (not edge's)
+>       -- CRITICAL: When combining partial + edge, use partial's offset (not edge's)
+>       -- The partial started earlier in the file!
 >       edgeLine = combinePartial partial edgePiece
->       edgeLineOffset = partialOffset  -- Combined line starts at partial's position
+>       edgeLineOffset = partialOffset  -- Combined line starts where partial started
 >       middleLines = stratGetMiddle strat pieces
 >       -- Get offsets for middle pieces (apply same transformation as for lines)
 >       middleOffsets = if null pieceOffsets || length pieceOffsets < 2
