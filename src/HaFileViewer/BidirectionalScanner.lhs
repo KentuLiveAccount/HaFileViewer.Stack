@@ -210,6 +210,7 @@ Tracks position and partial line across chunk boundaries.
 > data ScanState = ScanState
 >   { ssOffset       :: Offset          -- Current read position
 >   , ssPartial      :: BS.ByteString   -- Partial line from previous chunk
+>   , ssPartialOffset :: Offset         -- Byte offset of partial line
 >   , ssLines        :: [BS.ByteString] -- Accumulated lines (in scan order)
 >   , ssLineOffsets  :: [Offset]        -- Byte offsets (parallel to ssLines)
 >   , ssLineCount    :: Int             -- Count of lines (avoids O(n) length calls)
@@ -227,6 +228,7 @@ Initialize scanner state based on direction.
 >   in ScanState
 >        { ssOffset      = initialOffset
 >        , ssPartial     = BS.empty
+>        , ssPartialOffset = initialOffset
 >        , ssLines       = []
 >        , ssLineOffsets = []
 >        , ssLineCount   = 0
@@ -285,7 +287,7 @@ Identical to scanLines but returns byte offsets for each line.
 >   let initialState = initScanState strat fileSize endsWithLF
 >   finalState <- scanLoopWithOffsets strat readFn count initialState
 >   let reachedEOF = not (stratHasMore strat finalState)
->   let allLinesWithOffsets = prepareFinalLinesWithOffsets strat reachedEOF (ssEndsWithLF finalState) (ssPartial finalState) (ssLines finalState)
+>   let allLinesWithOffsets = prepareFinalLinesWithOffsets strat reachedEOF (ssEndsWithLF finalState) (ssPartial finalState) (ssPartialOffset finalState) (ssLines finalState) (ssLineOffsets finalState)
 >   -- For backward, we want the LAST count lines; for forward, the FIRST count lines
 >   let result = case dir of
 >         Forward  -> take count allLinesWithOffsets
@@ -309,22 +311,19 @@ Scanning loop that tracks offsets for each line.
 >       scanLoopWithOffsets strat readFn targetCount newState
 
 Helper to prepare final lines with their byte offsets.
-For now, we calculate offsets by summing line lengths.
-TODO: Track offsets more efficiently during scanning.
+Now uses stored offsets directly instead of recalculating.
 
-> prepareFinalLinesWithOffsets :: ScanStrategy -> Bool -> Bool -> BS.ByteString -> [BS.ByteString] -> [(T.Text, Offset)]
-> prepareFinalLinesWithOffsets strat reachedEOF endsWithLF partial rawLines =
+> prepareFinalLinesWithOffsets :: ScanStrategy -> Bool -> Bool -> BS.ByteString -> Offset -> [BS.ByteString] -> [Offset] -> [(T.Text, Offset)]
+> prepareFinalLinesWithOffsets strat reachedEOF endsWithLF partial partialOffset rawLines rawOffsets =
 >   let -- First get the lines using existing logic
 >       finalLines = prepareFinalLines strat reachedEOF endsWithLF partial rawLines
->       -- Then calculate offsets by summing lengths
->       -- This assumes forward direction starts at offset 0
->       -- For backward, offsets need adjustment based on actual positions
->       go _ [] = []
->       go currentOffset (line:rest) =
->         let lineBS = TE.encodeUtf8 line
->             lineLen = fromIntegral (BS.length lineBS) + 1  -- +1 for newline
->         in (line, currentOffset) : go (currentOffset + lineLen) rest
->   in go 0 finalLines
+>       -- Prepare final offsets matching the final lines
+>       finalOffsets = if BS.null partial || not reachedEOF
+>                      then rawOffsets
+>                      else case stratPartialSide strat of
+>                             LeftPartial  -> rawOffsets ++ [partialOffset]
+>                             RightPartial -> partialOffset : rawOffsets
+>   in zip finalLines finalOffsets
 
 Main scanning loop - now fully generic using strategy.
 
@@ -362,15 +361,32 @@ Assumes canonical format (as if file ends with newline).
 >   let -- Canonicalize chunk if it's the last/first chunk
 >       canonicalChunk = stratCanonicalizeChunk strat chunk state
 >       rawPieces = map stripCR $ BS.split lfByte canonicalChunk
+>       -- Calculate byte offsets for each raw piece (before ordering)
+>       rawPieceOffsets = calculatePieceOffsets (ssOffset state) rawPieces
 >       -- Order pieces (reverse for backward)
 >       pieces = stratOrderPieces strat rawPieces
->       (newLines, newPartial) = extractLinesCanonical strat pieces (ssPartial state)
+>       -- Apply same ordering to offsets manually (reverse for backward, drop trailing if needed)
+>       pieceOffsets = case stratPartialSide strat of
+>                        LeftPartial  -> rawPieceOffsets  -- Forward: keep as is
+>                        RightPartial ->  -- Backward: reverse and drop trailing
+>                          let reversed = reverse rawPieceOffsets
+>                              dropEmpty ps = if null ps then ps else tail ps  -- Drop last (which was first)
+>                          in if null rawPieces || not (BS.null (last rawPieces))
+>                             then reversed
+>                             else dropEmpty reversed
+>       (newLines, newLineOffsets, newPartial, newPartialOffset) = 
+>         extractLinesCanonical strat pieceOffsets pieces (ssPartial state) (ssPartialOffset state)
 >       offsetDelta = fromIntegral (BS.length chunk)  -- Use original chunk length
 >       newOffset = stratUpdateOffset strat offsetDelta (ssOffset state)
+>       -- Combine offsets using the same logic as stratCombineLines
+>       combinedOffsets = case stratPartialSide strat of
+>                           LeftPartial  -> ssLineOffsets state ++ newLineOffsets  -- Forward: append
+>                           RightPartial -> newLineOffsets ++ ssLineOffsets state  -- Backward: prepend
 >   in state { ssOffset = newOffset
 >            , ssPartial = newPartial
+>            , ssPartialOffset = newPartialOffset
 >            , ssLines = stratCombineLines strat (ssLines state) newLines
->            , ssLineOffsets = ssLineOffsets state  -- Will be updated in later steps
+>            , ssLineOffsets = combinedOffsets
 >            , ssLineCount = ssLineCount state + length newLines
 >            }
 
@@ -385,21 +401,37 @@ Strip trailing CR to handle both Unix (LF) and Windows (CRLF) line endings.
 Extract lines from canonicalized chunks - uses common functions and strategy.
 Assumes chunk format after split: [piece0, piece1, ..., pieceN, ""]
 The last piece is empty because canonical chunks end with LF.
+Now tracks byte offsets parallel to lines.
 
 > extractLinesCanonical :: ScanStrategy
+>                       -> [Offset]          -- ^ Byte offsets for each piece
 >                       -> [BS.ByteString]   -- ^ Pieces after split on LF
 >                       -> BS.ByteString     -- ^ Partial from previous chunk
->                       -> ([BS.ByteString], BS.ByteString)  -- ^ (Lines, new partial)
-> extractLinesCanonical _strat [] partial = ([], partial)  -- Empty chunk
-> extractLinesCanonical strat pieces partial =
+>                       -> Offset            -- ^ Offset of partial line
+>                       -> ([BS.ByteString], [Offset], BS.ByteString, Offset)  -- ^ (Lines, offsets, new partial, partial offset)
+> extractLinesCanonical _strat _ [] partial partialOffset = ([], [], partial, partialOffset)  -- Empty chunk
+> extractLinesCanonical strat pieceOffsets pieces partial partialOffset =
 >   let edgePiece = getEdgePiece pieces
+>       edgeOffset = if null pieceOffsets then partialOffset else head pieceOffsets
+>       -- When combining partial + edge, use partial's offset (not edge's)
 >       edgeLine = combinePartial partial edgePiece
+>       edgeLineOffset = partialOffset  -- Combined line starts at partial's position
 >       middleLines = stratGetMiddle strat pieces
+>       -- Get offsets for middle pieces (apply same transformation as for lines)
+>       middleOffsets = if null pieceOffsets || length pieceOffsets < 2
+>                       then []
+>                       else case stratPartialSide strat of
+>                              LeftPartial  -> tail (init pieceOffsets)
+>                              RightPartial -> reverse (tail (init pieceOffsets))  -- Same as: reverse . extractMiddlePieces
 >       allLines = case stratPartialSide strat of
 >                    LeftPartial  -> edgeLine : middleLines
 >                    RightPartial -> middleLines ++ [edgeLine]
+>       allOffsets = case stratPartialSide strat of
+>                      LeftPartial  -> edgeLineOffset : middleOffsets
+>                      RightPartial -> middleOffsets ++ [edgeLineOffset]
 >       newPartial = getNewPartial pieces
->   in (allLines, newPartial)
+>       newPartialOffset = if null pieceOffsets then partialOffset else last pieceOffsets
+>   in (allLines, allOffsets, newPartial, newPartialOffset)
 
 Prepare final result with proper ordering and decoding.
 Prepare final result with proper ordering and decoding.
