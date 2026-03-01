@@ -211,6 +211,7 @@ Tracks position and partial line across chunk boundaries.
 >   { ssOffset       :: Offset          -- Current read position
 >   , ssPartial      :: BS.ByteString   -- Partial line from previous chunk
 >   , ssLines        :: [BS.ByteString] -- Accumulated lines (in scan order)
+>   , ssLineOffsets  :: [Offset]        -- Byte offsets (parallel to ssLines)
 >   , ssLineCount    :: Int             -- Count of lines (avoids O(n) length calls)
 >   , ssFileSize     :: Integer         -- Total file size
 >   , ssEndsWithLF   :: Bool            -- True if file ends with newline
@@ -227,6 +228,7 @@ Initialize scanner state based on direction.
 >        { ssOffset      = initialOffset
 >        , ssPartial     = BS.empty
 >        , ssLines       = []
+>        , ssLineOffsets = []
 >        , ssLineCount   = 0
 >        , ssFileSize    = fileSize
 >        , ssEndsWithLF  = endsWithLF
@@ -356,6 +358,7 @@ Assumes canonical format (as if file ends with newline).
 >   in state { ssOffset = newOffset
 >            , ssPartial = newPartial
 >            , ssLines = stratCombineLines strat (ssLines state) newLines
+>            , ssLineOffsets = ssLineOffsets state  -- Will be updated in later steps
 >            , ssLineCount = ssLineCount state + length newLines
 >            }
 
