@@ -12,6 +12,7 @@ import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.LineCache
 import System.Environment (getArgs)
 import System.Directory (getFileSize)
+import Control.Monad.IO.Class (liftIO)
 
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)
@@ -51,7 +52,54 @@ drawUI vs = [viewport]
 handleEvent :: BrickEvent Name e -> EventM Name ViewState ()
 handleEvent (VtyEvent (V.EvKey (V.KChar 'q') [])) = halt
 handleEvent (VtyEvent (V.EvKey V.KEsc [])) = halt
+
+-- Scroll down (↓ or j)
+handleEvent (VtyEvent (V.EvKey V.KDown [])) = do
+  vs <- get
+  vs' <- liftIO (scrollDown vs)
+  put vs'
+handleEvent (VtyEvent (V.EvKey (V.KChar 'j') [])) = do
+  vs <- get
+  vs' <- liftIO (scrollDown vs)
+  put vs'
+
 handleEvent _ = return ()
+
+-- Scrolling operations
+scrollDown :: ViewState -> IO ViewState
+scrollDown vs = do
+  let cache = vsCache vs
+      cursor = vsCursor vs
+      viewport = vsViewport vs
+  
+  -- At EOF, don't scroll
+  if null viewport
+    then return vs
+    else do
+      -- Get the line number of the last line in viewport
+      let (lastLineNum, _) = last viewport
+          -- For FromStart origin, line numbers are positive (1-based)
+          -- So the next line to read is at 0-based index: lastLineNum
+          nextLineIndex = case cursorOrigin cursor of
+            FromStart -> lastLineNum  -- lastLineNum is 1-based, convert to 0-based
+            FromEnd -> error "Scrolling from end not yet implemented"
+      
+      -- Read 1 more line
+      moreLines <- getLines cache nextLineIndex 1
+      
+      if null moreLines
+        then return vs  -- At EOF, don't change state
+        else do
+          -- Create new line with number
+          let newLine = (lastLineNum + 1, head moreLines)
+          
+          -- Shift viewport down
+          let newViewport = shiftViewportDown viewport newLine (vsViewportSize vs)
+          
+          -- Update cursor line number
+          let newCursor = cursor { cursorLineNum = cursorLineNum cursor + 1 }
+          
+          return vs { vsViewport = newViewport, vsCursor = newCursor }
 
 -- Brick app definition
 app :: App ViewState e Name
