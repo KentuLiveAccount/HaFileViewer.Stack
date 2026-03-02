@@ -73,6 +73,18 @@ handleEvent (VtyEvent (V.EvKey (V.KChar 'k') [])) = do
   vs' <- liftIO (scrollUp vs)
   put vs'
 
+-- Page down (PgDn)
+handleEvent (VtyEvent (V.EvKey V.KPageDown [])) = do
+  vs <- get
+  vs' <- liftIO (pageDown vs)
+  put vs'
+
+-- Page up (PgUp)
+handleEvent (VtyEvent (V.EvKey V.KPageUp [])) = do
+  vs <- get
+  vs' <- liftIO (pageUp vs)
+  put vs'
+
 handleEvent _ = return ()
 
 -- Scrolling operations
@@ -143,6 +155,72 @@ scrollUp vs = do
               
               -- Update cursor line number
               let newCursor = cursor { cursorLineNum = cursorLineNum cursor - 1 }
+              
+              return vs { vsViewport = newViewport, vsCursor = newCursor }
+
+pageDown :: ViewState -> IO ViewState
+pageDown vs = do
+  let cache = vsCache vs
+      cursor = vsCursor vs
+      viewport = vsViewport vs
+      pageSize = vsViewportSize vs
+  
+  if null viewport
+    then return vs
+    else do
+      -- Get the line number of the last line in viewport
+      let (lastLineNum, _) = last viewport
+          -- Next page starts right after current viewport
+          nextPageIndex = lastLineNum
+      
+      -- Read a full page of lines
+      nextPage <- getLines cache nextPageIndex pageSize
+      
+      if null nextPage
+        then return vs  -- At EOF
+        else do
+          -- Create new viewport with line numbers
+          let newLineNumbers = [lastLineNum + 1 .. lastLineNum + fromIntegral (length nextPage)]
+              newViewport = zip newLineNumbers nextPage
+          
+          -- Update cursor (advance by the number of lines read)
+          let newCursor = cursor { cursorLineNum = cursorLineNum cursor + fromIntegral (length nextPage) }
+          
+          return vs { vsViewport = newViewport, vsCursor = newCursor }
+
+pageUp :: ViewState -> IO ViewState
+pageUp vs = do
+  let cache = vsCache vs
+      cursor = vsCursor vs
+      viewport = vsViewport vs
+      pageSize = vsViewportSize vs
+  
+  if null viewport
+    then return vs
+    else do
+      -- Get the line number of the first line in viewport
+      let (firstLineNum, _) = head viewport
+      
+      -- Can't scroll up if we're at the beginning
+      if firstLineNum <= 1
+        then return vs
+        else do
+          -- Calculate how many lines to go back (full page or less if near start)
+          let linesToRead = min pageSize (fromIntegral firstLineNum - 1)
+              prevPageIndex = max 0 (firstLineNum - fromIntegral linesToRead - 1)
+          
+          -- Read previous page
+          prevPage <- getLines cache prevPageIndex linesToRead
+          
+          if null prevPage
+            then return vs
+            else do
+              -- Create new viewport with line numbers
+              let newLineNumbers = [prevPageIndex + 1 .. prevPageIndex + fromIntegral (length prevPage)]
+                  newViewport = zip newLineNumbers prevPage
+              
+              -- Update cursor (go back by the number of lines read)
+              let newCursor = cursor { cursorLineNum = cursorLineNum cursor - fromIntegral (length prevPage) }
               
               return vs { vsViewport = newViewport, vsCursor = newCursor }
 
