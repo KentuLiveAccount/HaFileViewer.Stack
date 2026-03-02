@@ -52,11 +52,15 @@ calculateDisplayLineNumber cursor relativeIndex =
     FromStart -> cursorLineNum cursor + fromIntegral relativeIndex + 1
     FromEnd   -> negate (cursorLineNum cursor + fromIntegral relativeIndex + 1)
 
+-- | Shift viewport down by removing first line and adding new line at end
 shiftViewportDown :: [LineWithNumber] -> LineWithNumber -> Int -> [LineWithNumber]
-shiftViewportDown = undefined
+shiftViewportDown viewport newLine maxSize = 
+  take maxSize (drop 1 viewport ++ [newLine])
 
+-- | Shift viewport up by adding new line at start and removing last line
 shiftViewportUp :: LineWithNumber -> [LineWithNumber] -> Int -> [LineWithNumber]
-shiftViewportUp = undefined
+shiftViewportUp newLine viewport maxSize =
+  take maxSize (newLine : viewport)
 
 updateCursorForward :: ViewCursor -> [(T.Text, Offset)] -> ViewCursor
 updateCursorForward = undefined
