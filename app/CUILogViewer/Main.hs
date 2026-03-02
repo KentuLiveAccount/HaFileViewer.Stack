@@ -11,7 +11,7 @@ import qualified Data.Text as T
 import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.LineCache
 import System.Environment (getArgs)
-import System.Directory (getFileSize)
+import System.Directory (getFileSize, doesFileExist)
 import Control.Monad.IO.Class (liftIO)
 
 -- Name type for brick
@@ -22,22 +22,37 @@ drawUI :: ViewState -> [Widget Name]
 drawUI vs = [viewport]
   where
     -- Render each line with line number
-    lineWidgets = map renderLine (vsViewport vs)
+    lineWidgets = if null (vsViewport vs)
+                  then [str "(empty file)"]
+                  else map renderLine (vsViewport vs)
     renderLine (lineNum, text) = 
       hBox [ padLeft (Pad 1) $ str (show lineNum)
            , str ": "
            , txt text
            ]
     
+    -- Calculate position indicator
+    cursor = vsCursor vs
+    positionInfo = if cursorOffset cursor == 0
+                   then " [START] "
+                   else if cursorOffset cursor >= vsFileSize vs
+                   then " [END] "
+                   else ""
+    
+    -- Calculate line info
+    lineInfo = if cursorOrigin cursor == FromStart
+               then "Lines: " ++ show (cursorLineNum cursor + 1) ++ "+..."
+               else "Lines: ...-" ++ show (abs (cursorLineNum cursor))
+    
     -- Status bar
     statusBar = hBox
       [ str "File: "
       , str (vsFilePath vs)
       , str "  |  "
-      , str "Lines: "
-      , str (show (length (vsViewport vs)))
+      , str lineInfo
+      , str positionInfo
       , str "  |  "
-      , str "Press 'q' to quit"
+      , str "q:quit g:top G:end ↑↓:scroll PgUp/Dn:page"
       ]
     
     -- Full viewport
@@ -319,7 +334,11 @@ main = do
   args <- getArgs
   case args of
     [] -> putStrLn "Usage: cui-log-viewer <filepath>"
-    (filepath:_) -> runViewer filepath
+    (filepath:_) -> do
+      exists <- doesFileExist filepath
+      if exists
+        then runViewer filepath
+        else putStrLn $ "Error: File not found: " ++ filepath
 
 runViewer :: FilePath -> IO ()
 runViewer filepath = do
@@ -329,25 +348,31 @@ runViewer filepath = do
   -- Get file size using System.Directory
   fileSize <- getFileSize filepath
   
-  -- Read first 25 lines with offsets
-  initialLinesWithOffsets <- getLines cache 0 25
-  
-  -- Create initial cursor and viewport
-  let cursor = ViewCursor { cursorOffset = 0, cursorLineNum = 0, cursorOrigin = FromStart }
-      -- Calculate line numbers using the pure function
-      linesWithNumbers = [(calculateDisplayLineNumber cursor i, line) 
-                         | (i, line) <- zip [0..] initialLinesWithOffsets]
-      initialState = ViewState
-        { vsCache = cache
-        , vsCursor = cursor
-        , vsViewport = linesWithNumbers
-        , vsViewportSize = 25
-        , vsFilePath = filepath
-        , vsFileSize = fileSize
-        }
-  
-  -- Run brick app
-  _ <- defaultMain app initialState
-  
-  -- Clean up
-  closeLineCache cache
+  -- Check for empty file
+  if fileSize == 0
+    then do
+      putStrLn "Error: File is empty"
+      closeLineCache cache
+    else do
+      -- Read first 25 lines with offsets
+      initialLinesWithOffsets <- getLines cache 0 25
+      
+      -- Create initial cursor and viewport
+      let cursor = ViewCursor { cursorOffset = 0, cursorLineNum = 0, cursorOrigin = FromStart }
+          -- Calculate line numbers using the pure function
+          linesWithNumbers = [(calculateDisplayLineNumber cursor i, line) 
+                             | (i, line) <- zip [0..] initialLinesWithOffsets]
+          initialState = ViewState
+            { vsCache = cache
+            , vsCursor = cursor
+            , vsViewport = linesWithNumbers
+            , vsViewportSize = 25
+            , vsFilePath = filepath
+            , vsFileSize = fileSize
+            }
+      
+      -- Run brick app
+      _ <- defaultMain app initialState
+      
+      -- Clean up
+      closeLineCache cache
