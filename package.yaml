@@ -46,6 +46,7 @@ executables:
       - text
       - brick >= 2.0
       - vty
+      - directory
 
   ha-file-viewer-web:
     main: Main.hs

@@ -5,18 +5,47 @@ module Main where
 import Brick
 import Brick.Main (App(..), defaultMain, halt)
 import Brick.Types (BrickEvent(..), EventM)
+import Brick.Widgets.Border (hBorder, hBorderWithLabel)
 import qualified Graphics.Vty as V
 import qualified Data.Text as T
 import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.LineCache
 import System.Environment (getArgs)
+import System.Directory (getFileSize)
 
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)
 
 -- Draw the UI
 drawUI :: ViewState -> [Widget Name]
-drawUI _ = [str "CUILogViewer - Loading... (press 'q' to quit)"]
+drawUI vs = [viewport]
+  where
+    -- Render each line with line number
+    lineWidgets = map renderLine (vsViewport vs)
+    renderLine (lineNum, text) = 
+      hBox [ padLeft (Pad 1) $ str (show lineNum)
+           , str ": "
+           , txt text
+           ]
+    
+    -- Status bar
+    statusBar = hBox
+      [ str "File: "
+      , str (vsFilePath vs)
+      , str "  |  "
+      , str "Lines: "
+      , str (show (length (vsViewport vs)))
+      , str "  |  "
+      , str "Press 'q' to quit"
+      ]
+    
+    -- Full viewport
+    viewport = vBox
+      [ hBorderWithLabel (str " CUI Log Viewer ")
+      , vBox lineWidgets
+      , hBorder
+      , statusBar
+      ]
 
 -- Handle keyboard events
 handleEvent :: BrickEvent Name e -> EventM Name ViewState ()
@@ -43,20 +72,31 @@ main = do
 
 runViewer :: FilePath -> IO ()
 runViewer filepath = do
-  -- For now, just run with placeholder state
-  -- We'll initialize properly in Step 7
+  -- Open LineCache
   cache <- openLineCache filepath
   
-  let placeholder = ViewState
+  -- Get file size using System.Directory
+  fileSize <- getFileSize filepath
+  
+  -- Read first 25 lines with offsets
+  initialLinesWithOffsets <- getLines cache 0 25
+  
+  -- Create initial cursor and viewport
+  let cursor = ViewCursor { cursorOffset = 0, cursorLineNum = 0, cursorOrigin = FromStart }
+      -- Calculate line numbers using the pure function
+      linesWithNumbers = [(calculateDisplayLineNumber cursor i, line) 
+                         | (i, line) <- zip [0..] initialLinesWithOffsets]
+      initialState = ViewState
         { vsCache = cache
-        , vsCursor = ViewCursor 0 0 FromStart
-        , vsViewport = []
+        , vsCursor = cursor
+        , vsViewport = linesWithNumbers
         , vsViewportSize = 25
         , vsFilePath = filepath
-        , vsFileSize = 0
+        , vsFileSize = fileSize
         }
   
-  _ <- defaultMain app placeholder
+  -- Run brick app
+  _ <- defaultMain app initialState
   
+  -- Clean up
   closeLineCache cache
-  return ()

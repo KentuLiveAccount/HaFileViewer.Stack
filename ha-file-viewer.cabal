@@ -49,6 +49,7 @@ executable cui-log-viewer
   build-depends:
       base
     , brick >=2.0
+    , directory
     , ha-file-viewer
     , text
     , vty
