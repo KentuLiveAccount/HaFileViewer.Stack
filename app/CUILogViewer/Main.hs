@@ -63,6 +63,16 @@ handleEvent (VtyEvent (V.EvKey (V.KChar 'j') [])) = do
   vs' <- liftIO (scrollDown vs)
   put vs'
 
+-- Scroll up (↑ or k)
+handleEvent (VtyEvent (V.EvKey V.KUp [])) = do
+  vs <- get
+  vs' <- liftIO (scrollUp vs)
+  put vs'
+handleEvent (VtyEvent (V.EvKey (V.KChar 'k') [])) = do
+  vs <- get
+  vs' <- liftIO (scrollUp vs)
+  put vs'
+
 handleEvent _ = return ()
 
 -- Scrolling operations
@@ -100,6 +110,41 @@ scrollDown vs = do
           let newCursor = cursor { cursorLineNum = cursorLineNum cursor + 1 }
           
           return vs { vsViewport = newViewport, vsCursor = newCursor }
+
+scrollUp :: ViewState -> IO ViewState
+scrollUp vs = do
+  let cache = vsCache vs
+      cursor = vsCursor vs
+      viewport = vsViewport vs
+  
+  -- Can't scroll up from beginning
+  if null viewport
+    then return vs
+    else do
+      -- Get the line number of the first line in viewport
+      let (firstLineNum, _) = head viewport
+      
+      -- Can't scroll up if we're at line 1 (beginning of file)
+      if firstLineNum <= 1
+        then return vs
+        else do
+          -- Read the previous line (0-based index is firstLineNum - 2)
+          let prevLineIndex = firstLineNum - 2
+          prevLines <- getLines cache prevLineIndex 1
+          
+          if null prevLines
+            then return vs  -- Shouldn't happen, but be safe
+            else do
+              -- Create new line with number
+              let newLine = (firstLineNum - 1, head prevLines)
+              
+              -- Shift viewport up
+              let newViewport = shiftViewportUp newLine viewport (vsViewportSize vs)
+              
+              -- Update cursor line number
+              let newCursor = cursor { cursorLineNum = cursorLineNum cursor - 1 }
+              
+              return vs { vsViewport = newViewport, vsCursor = newCursor }
 
 -- Brick app definition
 app :: App ViewState e Name
