@@ -46,11 +46,14 @@ data ViewState = ViewState
 -- | Calculate display line number based on cursor position and relative index
 -- For FromStart: positive line numbers (1-based)
 -- For FromEnd: negative line numbers (-1 is last line)
+-- When cursorLineNum=25 (showing 25 lines from end), indices [0..24]:
+--   Index 0 (top) → -(25 - 0) = -25 (25th from last) ✓
+--   Index 24 (bottom) → -(25 - 24) = -1 (last line) ✓
 calculateDisplayLineNumber :: ViewCursor -> Int -> Integer
 calculateDisplayLineNumber cursor relativeIndex = 
   case cursorOrigin cursor of
     FromStart -> cursorLineNum cursor + fromIntegral relativeIndex + 1
-    FromEnd   -> negate (cursorLineNum cursor + fromIntegral relativeIndex + 1)
+    FromEnd   -> negate (cursorLineNum cursor - fromIntegral relativeIndex)
 
 -- | Shift viewport down by removing first line and adding new line at end
 shiftViewportDown :: [LineWithNumber] -> LineWithNumber -> Int -> [LineWithNumber]

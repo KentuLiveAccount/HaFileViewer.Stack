@@ -305,9 +305,11 @@ jumpToEnd vs = do
       let lastPage = drop (max 0 (length allLines - pageSize)) allLines
       
       -- Create cursor at file end
+      -- cursorLineNum should be the number of lines we're showing
+      -- so that calculateDisplayLineNumber works correctly
       let newCursor = ViewCursor
             { cursorOffset = fromIntegral fileSize
-            , cursorLineNum = 0
+            , cursorLineNum = fromIntegral (length lastPage)
             , cursorOrigin = FromEnd
             }
       
