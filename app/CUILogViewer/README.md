@@ -11,25 +11,25 @@ An interactive terminal-based log file viewer built with Haskell and the brick T
 - 🎯 **No Memory Limits**: Handles arbitrarily large files (tested with multi-GB files)
 - 🛡️ **Error Handling**: Gracefully handles empty files, missing files, and edge cases
 
-## Building
+## Building and Running
 
 ```bash
-# From project root
-stack build
+# stack run automatically builds if needed
+stack run cui-log-viewer <filepath>
 
-# Or build and run directly
-stack build && stack exec cui-log-viewer <filepath>
+# Or build explicitly first
+stack build
 ```
 
 ## Usage
 
 ```bash
 # Basic usage
-stack exec cui-log-viewer <filepath>
+stack run cui-log-viewer <filepath>
 
 # Example
-stack exec cui-log-viewer /var/log/app.log
-stack exec cui-log-viewer test-sample.txt
+stack run cui-log-viewer /var/log/app.log
+stack run cui-log-viewer test-sample.txt
 ```
 
 ### What You'll See
@@ -91,7 +91,7 @@ Status bar shows current position:
 
 ```bash
 # View nginx access log
-stack exec cui-log-viewer /var/log/nginx/access.log
+stack run cui-log-viewer /var/log/nginx/access.log
 
 # Navigate to end to see most recent entries
 # Press 'G' (Shift+g) to jump to end
@@ -102,7 +102,7 @@ stack exec cui-log-viewer /var/log/nginx/access.log
 
 ```bash
 # Open large application log
-stack exec cui-log-viewer app.log
+stack run cui-log-viewer app.log
 
 # Start at beginning (default)
 # Press PgDn repeatedly to skip through
@@ -114,7 +114,7 @@ stack exec cui-log-viewer app.log
 
 ```bash
 # Check file contents quickly
-stack exec cui-log-viewer data.txt
+stack run cui-log-viewer data.txt
 
 # Jump to end with 'G' to see last lines
 # Quit immediately with 'q'
@@ -269,7 +269,7 @@ See LICENSE file in project root.
 
 **Quick Start:**
 ```bash
-stack build && stack exec cui-log-viewer /var/log/syslog
+stack run cui-log-viewer /var/log/syslog
 ```
 
 **Keys to Remember:**
