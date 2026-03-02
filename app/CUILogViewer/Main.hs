@@ -85,6 +85,26 @@ handleEvent (VtyEvent (V.EvKey V.KPageUp [])) = do
   vs' <- liftIO (pageUp vs)
   put vs'
 
+-- Jump to start (Home or g)
+handleEvent (VtyEvent (V.EvKey V.KHome [])) = do
+  vs <- get
+  vs' <- liftIO (jumpToStart vs)
+  put vs'
+handleEvent (VtyEvent (V.EvKey (V.KChar 'g') [])) = do
+  vs <- get
+  vs' <- liftIO (jumpToStart vs)
+  put vs'
+
+-- Jump to end (End or G)
+handleEvent (VtyEvent (V.EvKey V.KEnd [])) = do
+  vs <- get
+  vs' <- liftIO (jumpToEnd vs)
+  put vs'
+handleEvent (VtyEvent (V.EvKey (V.KChar 'G') [])) = do
+  vs <- get
+  vs' <- liftIO (jumpToEnd vs)
+  put vs'
+
 handleEvent _ = return ()
 
 -- Scrolling operations
@@ -223,6 +243,66 @@ pageUp vs = do
               let newCursor = cursor { cursorLineNum = cursorLineNum cursor - fromIntegral (length prevPage) }
               
               return vs { vsViewport = newViewport, vsCursor = newCursor }
+
+-- Jump to start of file
+jumpToStart :: ViewState -> IO ViewState
+jumpToStart vs = do
+  let cache = vsCache vs
+      pageSize = vsViewportSize vs
+  
+  -- Read first page from offset 0
+  firstPage <- getLines cache 0 pageSize
+  
+  if null firstPage
+    then return vs  -- Empty file
+    else do
+      -- Create cursor at file start
+      let newCursor = ViewCursor
+            { cursorOffset = 0
+            , cursorLineNum = 0
+            , cursorOrigin = FromStart
+            }
+      
+      -- Calculate line numbers starting from 1
+      let linesWithNumbers = [(calculateDisplayLineNumber newCursor i, line) 
+                             | (i, line) <- zip [0..] firstPage]
+      
+      return vs { vsViewport = linesWithNumbers
+                , vsCursor = newCursor
+                }
+
+-- Jump to end of file
+jumpToEnd :: ViewState -> IO ViewState
+jumpToEnd vs = do
+  let cache = vsCache vs
+      pageSize = vsViewportSize vs
+      fileSize = vsFileSize vs
+  
+  -- Approximate: read from near end to find last lines
+  -- This is a simple approach - read from a position well before EOF
+  let approxStart = max 0 (fromIntegral fileSize - fromIntegral (pageSize * 100))
+  allLines <- getLines cache approxStart (pageSize * 2)
+  
+  if null allLines
+    then return vs  -- Empty file
+    else do
+      -- Take last pageSize lines
+      let lastPage = drop (max 0 (length allLines - pageSize)) allLines
+      
+      -- Create cursor at file end
+      let newCursor = ViewCursor
+            { cursorOffset = fromIntegral fileSize
+            , cursorLineNum = 0
+            , cursorOrigin = FromEnd
+            }
+      
+      -- Calculate NEGATIVE line numbers (viewing from end)
+      let linesWithNumbers = [(calculateDisplayLineNumber newCursor i, line) 
+                             | (i, line) <- zip [0..] lastPage]
+      
+      return vs { vsViewport = linesWithNumbers
+                , vsCursor = newCursor
+                }
 
 -- Brick app definition
 app :: App ViewState e Name
