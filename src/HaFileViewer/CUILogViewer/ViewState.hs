@@ -43,10 +43,14 @@ data ViewState = ViewState
   , vsFileSize     :: Integer             -- ^ Size of file in bytes
   }
 
--- Placeholder implementations (to be completed in later steps)
-
+-- | Calculate display line number based on cursor position and relative index
+-- For FromStart: positive line numbers (1-based)
+-- For FromEnd: negative line numbers (-1 is last line)
 calculateDisplayLineNumber :: ViewCursor -> Int -> Integer
-calculateDisplayLineNumber = undefined
+calculateDisplayLineNumber cursor relativeIndex = 
+  case cursorOrigin cursor of
+    FromStart -> cursorLineNum cursor + fromIntegral relativeIndex + 1
+    FromEnd   -> negate (cursorLineNum cursor + fromIntegral relativeIndex + 1)
 
 shiftViewportDown :: [LineWithNumber] -> LineWithNumber -> Int -> [LineWithNumber]
 shiftViewportDown = undefined

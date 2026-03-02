@@ -18,6 +18,7 @@ library
       HaFileViewer.IndexedFileReader
       HaFileViewer.BidirectionalScanner
       HaFileViewer.LineCache
+      HaFileViewer.CUILogViewer.ViewState
   other-modules:
       HaFileViewer.Internal.SparseIndex
       HaFileViewer.LineMap.Common

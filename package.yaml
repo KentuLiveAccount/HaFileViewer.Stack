@@ -10,6 +10,7 @@ library:
     - HaFileViewer.IndexedFileReader
     - HaFileViewer.BidirectionalScanner
     - HaFileViewer.LineCache
+    - HaFileViewer.CUILogViewer.ViewState
   source-dirs: src
   ghc-options: -Wall
   dependencies:
