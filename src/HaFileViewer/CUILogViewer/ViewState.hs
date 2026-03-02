@@ -62,8 +62,22 @@ shiftViewportUp :: LineWithNumber -> [LineWithNumber] -> Int -> [LineWithNumber]
 shiftViewportUp newLine viewport maxSize =
   take maxSize (newLine : viewport)
 
+-- | Update cursor after reading lines forward
 updateCursorForward :: ViewCursor -> [(T.Text, Offset)] -> ViewCursor
-updateCursorForward = undefined
+updateCursorForward cursor linesRead =
+  let linesCount = length linesRead
+      newOffset = if null linesRead 
+                  then cursorOffset cursor 
+                  else snd (last linesRead)
+      newLineNum = cursorLineNum cursor + fromIntegral linesCount
+  in cursor { cursorOffset = newOffset, cursorLineNum = newLineNum }
 
-updateCursorBackward :: ViewCursor -> [(T.Text, Offset)] -> ViewCursor
-updateCursorBackward = undefined
+-- | Update cursor after reading lines backward
+updateCursorBackward :: ViewCursor -> [(T.Text, Offset)] -> ViewCursor  
+updateCursorBackward cursor linesRead =
+  let linesCount = length linesRead
+      newOffset = if null linesRead 
+                  then cursorOffset cursor 
+                  else snd (head linesRead)
+      newLineNum = cursorLineNum cursor + fromIntegral linesCount
+  in cursor { cursorOffset = newOffset, cursorLineNum = newLineNum }
