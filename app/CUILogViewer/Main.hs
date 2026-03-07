@@ -36,10 +36,10 @@ drawUI vs = [viewport]
     cursor = vsCursor vs
     positionInfo = ""  -- Will be handled by line numbers
     
-    -- Calculate line info
+    -- Calculate line info using viewport bounds
     lineInfo = if cursorOrigin cursor == FromStart
-               then "Lines: " ++ show (cursorLineNum cursor + 1) ++ "+..."
-               else "Lines: ...-" ++ show (abs (cursorLineNum cursor))
+               then "Lines: " ++ show (lpFirstLine (cursorPosition cursor)) ++ "-" ++ show (lpLastLine (cursorPosition cursor))
+               else "Lines: " ++ show (lpFirstLine (cursorPosition cursor)) ++ " to " ++ show (lpLastLine (cursorPosition cursor))
     
     -- Status bar
     statusBar = hBox
@@ -143,10 +143,9 @@ scrollDown vs = do
           -- Shift viewport down
           let newViewport = shiftViewportDown viewport newLine (vsViewportSize vs)
           
-          -- Update cursor
+          -- Update cursor - use lpLineNum from newPosition, don't track separately
           let newCursor = cursor 
                 { cursorPosition = newPosition
-                , cursorLineNum = cursorLineNum cursor + 1
                 }
           
           return vs { vsViewport = newViewport, vsCursor = newCursor }
@@ -181,10 +180,9 @@ scrollUp vs = do
               -- Shift viewport up
               let newViewport = shiftViewportUp newLine viewport (vsViewportSize vs)
               
-              -- Update cursor
+              -- Update cursor - use lpLineNum from newPosition
               let newCursor = cursor 
                     { cursorPosition = newPosition
-                    , cursorLineNum = cursorLineNum cursor - 1
                     }
               
               return vs { vsViewport = newViewport, vsCursor = newCursor }
@@ -208,10 +206,9 @@ pageDown vs = do
           -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
           let swappedPage = [(lineNum, text) | (text, lineNum) <- nextPage]
           
-          -- Update cursor and viewport
+          -- Update cursor and viewport - use lpLineNum from newPosition
           let newCursor = cursor 
                 { cursorPosition = newPosition
-                , cursorLineNum = cursorLineNum cursor + fromIntegral (length nextPage)
                 }
           
           return vs { vsViewport = swappedPage, vsCursor = newCursor }
@@ -242,10 +239,9 @@ pageUp vs = do
               -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
               let swappedPage = [(lineNum, text) | (text, lineNum) <- prevPage]
               
-              -- Update cursor and viewport
+              -- Update cursor and viewport - use lpLineNum from newPosition
               let newCursor = cursor 
                     { cursorPosition = newPosition
-                    , cursorLineNum = cursorLineNum cursor - fromIntegral (length prevPage)
                     }
               
               return vs { vsViewport = swappedPage, vsCursor = newCursor }
@@ -265,11 +261,10 @@ jumpToStart vs = do
       -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
       let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
       
-      -- Create cursor at file start
+      -- Create cursor at file start - use lpOrigin from newPosition to set cursorOrigin
       let newCursor = ViewCursor
             { cursorPosition = newPosition
-            , cursorLineNum = fromIntegral (length linesWithNumbers)
-            , cursorOrigin = FromStart
+            , cursorOrigin = lpOrigin newPosition
             }
       
       return vs { vsViewport = swappedLines
@@ -291,11 +286,10 @@ jumpToEnd vs = do
       -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
       let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
       
-      -- Create cursor at file end
+      -- Create cursor at file end - use lpOrigin from newPosition
       let newCursor = ViewCursor
             { cursorPosition = newPosition
-            , cursorLineNum = fromIntegral (length linesWithNumbers)
-            , cursorOrigin = FromEnd
+            , cursorOrigin = lpOrigin newPosition
             }
       
       return vs { vsViewport = swappedLines
@@ -340,11 +334,10 @@ runViewer filepath = do
       -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
       let swappedLines = [(lineNum, text) | (text, lineNum) <- initialLines]
       
-      -- Create initial cursor and viewport
+      -- Create initial cursor and viewport - use lpOrigin from initialPosition
       let cursor = ViewCursor 
             { cursorPosition = initialPosition
-            , cursorLineNum = fromIntegral (length initialLines)
-            , cursorOrigin = FromStart
+            , cursorOrigin = lpOrigin initialPosition
             }
           initialState = ViewState
             { vsCache = cache

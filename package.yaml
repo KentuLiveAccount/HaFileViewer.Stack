@@ -78,6 +78,16 @@ tests:
       - bytestring
       - time
 
+  ui-systematic-test:
+    main: test_ui_systematic.hs
+    source-dirs: .
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    dependencies:
+      - ha-file-viewer
+      - base
+      - text
+      - directory
+
   ha-file-viewer-test2:
     main: Spec.hs
     source-dirs: test2

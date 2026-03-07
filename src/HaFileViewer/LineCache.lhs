@@ -31,6 +31,10 @@ Performance Characteristics:
 >   , CacheConfig(..)
 >   , CacheStats(..)
 >   , LinePosition  -- Opaque type, constructor not exported
+>   , ScanOrigin(..)  -- Export with constructors for pattern matching
+>   , lpFirstLine  -- Export accessor for first line in viewport
+>   , lpLastLine   -- Export accessor for last line in viewport
+>   , lpOrigin   -- Export accessor for origin
 >     
 >     -- * Creation and lifecycle
 >   , openLineCache
@@ -138,12 +142,14 @@ Data Types
 >   } deriving (Show, Eq)
 
 > -- | Opaque position marker for resuming line reads
-> -- Contains byte offset, current line number, and origin (FromStart or FromEnd)
-> -- The origin determines line number sign and NEVER changes during scrolling
+> -- Contains byte offset, viewport bounds (first and last line numbers), and origin
+> -- The viewport bounds define which lines are currently visible
+> -- This allows correct calculation of line numbers for both forward and backward scrolling
 > data LinePosition = LinePosition 
->   { lpOffset    :: Offset
->   , lpLineNum   :: Integer
->   , lpOrigin    :: ScanOrigin
+>   { lpOffset      :: Offset
+>   , lpFirstLine   :: Integer  -- ^ First line number in current viewport
+>   , lpLastLine    :: Integer  -- ^ Last line number in current viewport
+>   , lpOrigin      :: ScanOrigin
 >   } deriving (Show, Eq)
 
 Creation and Lifecycle
@@ -315,10 +321,11 @@ along with content, and an opaque position marker for resuming reads.
 >   let lineNumbers = calculateForwardLineNumbers 1 count
 >       result = zip (map fst linesWithOffsets) lineNumbers
 >   
->   -- Calculate new position (offset after last line read, line number after last line, direction forward)
+>   -- Calculate new position with viewport bounds
 >   let newOffset = extractNewPosition linesWithOffsets Forward
->       newLineNum = 1 + fromIntegral count  -- Next line number after reading 'count' lines
->       newPosition = LinePosition newOffset newLineNum FromStart
+>       newFirstLine = 1  -- First visible line in viewport
+>       newLastLine = fromIntegral count  -- Last visible line in viewport
+>       newPosition = LinePosition newOffset newFirstLine newLastLine FromStart
 >   
 >   return (result, newPosition)
 
@@ -345,18 +352,20 @@ along with content, and an opaque position marker for resuming reads.
 >   let lineNumbers = calculateBackwardLineNumbers count
 >       result = zip (map fst linesWithOffsets) lineNumbers
 >   
->   -- Calculate new position (offset of first line for backward, first line number)
+>   -- Calculate new position with viewport bounds (negative line numbers)
 >   let newOffset = extractNewPosition linesWithOffsets Backward
->       newLineNum = negate (fromIntegral count)  -- First line number in the result
->       newPosition = LinePosition newOffset newLineNum FromEnd
+>       newFirstLine = negate (fromIntegral count)  -- First visible line (most negative)
+>       newLastLine = -1  -- Last visible line is always -1 (last line of file)
+>       newPosition = LinePosition newOffset newFirstLine newLastLine FromEnd
 >   
 >   return (result, newPosition)
 
 > -- | Read N lines from a given position in specified direction
 > -- Returns lines with appropriate line numbers and new position to continue
+> -- The position tracks viewport bounds (first and last visible lines)
 > getLinesFrom :: LineCache -> LinePosition -> Direction -> Int 
 >              -> IO ([(T.Text, Integer)], LinePosition)
-> getLinesFrom lc (LinePosition startOffset currentLineNum origin) dir count = do
+> getLinesFrom lc (LinePosition startOffset firstLine lastLine origin) dir count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
@@ -383,26 +392,29 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
 >         Backward -> linesWithOffsets  -- Backward offsets are already absolute
 >   
->   -- Calculate line numbers based on ORIGIN (not scroll direction)
->   -- Origin determines the sign; scroll direction determines the starting point
+>   -- Calculate line numbers based on viewport bounds and scroll direction
+>   -- firstLine and lastLine define the current viewport span
+>   -- We're reading new lines that will shift the viewport
 >   let startLineNum = case (origin, dir) of
->         (FromStart, Forward)  -> currentLineNum  -- Start from current position
->         (FromStart, Backward) -> currentLineNum - fromIntegral count  -- Previous positive lines
->         (FromEnd, Forward)    -> currentLineNum + fromIntegral count  -- Less negative (toward end)
->         (FromEnd, Backward)   -> currentLineNum - 1  -- More negative (toward start)
+>         (FromStart, Forward)  -> lastLine + 1  -- Read after current viewport
+>         (FromStart, Backward) -> firstLine - fromIntegral count  -- Read before current viewport
+>         (FromEnd, Forward)    -> lastLine + 1  -- Read toward end (less negative or beyond -1)
+>         (FromEnd, Backward)   -> firstLine - fromIntegral count  -- Read toward start (more negative)
 >
 >       lineNumbers = case origin of
 >         FromStart -> calculateForwardLineNumbers startLineNum count  -- Always positive
->         FromEnd   -> calculateBackwardLineNumbers (abs (fromInteger startLineNum))  -- Always negative
+>         FromEnd   -> [startLineNum .. (startLineNum + fromIntegral count - 1)]  -- Consecutive negatives
 >       
 >       result = zip (map fst adjustedLines) lineNumbers
 >   
->   -- Calculate new position - origin NEVER changes, only offset and line number
+>   -- Calculate new viewport bounds after scroll
+>   -- Forward: viewport shifts forward (first and last both increase by count)
+>   -- Backward: viewport shifts backward (first and last both decrease by count)
 >   let newOffset = extractNewPosition adjustedLines dir
->       newLineNum = case dir of
->         Forward  -> currentLineNum + fromIntegral count  -- Advance by count lines
->         Backward -> currentLineNum - fromIntegral count  -- Go back by count lines
->       newPosition = LinePosition newOffset newLineNum origin  -- Keep same origin!
+>       (newFirstLine, newLastLine) = case dir of
+>         Forward  -> (firstLine + fromIntegral count, lastLine + fromIntegral count)
+>         Backward -> (firstLine - fromIntegral count, lastLine - fromIntegral count)
+>       newPosition = LinePosition newOffset newFirstLine newLastLine origin
 >
 >   return (result, newPosition)
 
