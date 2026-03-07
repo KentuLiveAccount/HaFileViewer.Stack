@@ -366,57 +366,64 @@ along with content, and an opaque position marker for resuming reads.
 > getLinesFrom :: LineCache -> LinePosition -> Direction -> Int 
 >              -> IO ([(T.Text, Integer)], LinePosition)
 > getLinesFrom lc (LinePosition startOffset firstLine lastLine origin) dir count = do
->   -- Check if file modified
->   modified <- checkModified lc
->   when modified $ invalidateCache lc
->   
->   -- Open file handle
->   h <- ensureHandle lc
->   
->   -- Create read function starting from given offset
->   let readFn offset size = do
->         let absOffset = case dir of
->               Forward  -> startOffset + offset
->               Backward -> offset  -- Backward offsets are already absolute
->         hSeek h AbsoluteSeek (fromInteger absOffset)
->         BS.hGet h (fromInteger size)
->       remainingSize = case dir of
->         Forward  -> lcFileSize lc - startOffset
->         Backward -> startOffset  -- For backward, we read from 0 to startOffset
->   
->   -- Scan in the specified direction
->   linesWithOffsets <- scanLinesWithOffsets dir remainingSize readFn count
->   
->   -- Adjust offsets to be absolute (scanLinesWithOffsets returns relative offsets for Forward)
->   let adjustedLines = case dir of
->         Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
->         Backward -> linesWithOffsets  -- Backward offsets are already absolute
->   
->   -- Calculate line numbers based on viewport bounds and scroll direction
->   -- firstLine and lastLine define the current viewport span
->   -- We're reading new lines that will shift the viewport
->   let startLineNum = case (origin, dir) of
->         (FromStart, Forward)  -> lastLine + 1  -- Read after current viewport
->         (FromStart, Backward) -> firstLine - fromIntegral count  -- Read before current viewport
->         (FromEnd, Forward)    -> lastLine + 1  -- Read toward end (less negative or beyond -1)
->         (FromEnd, Backward)   -> firstLine - fromIntegral count  -- Read toward start (more negative)
->
->       lineNumbers = case origin of
->         FromStart -> calculateForwardLineNumbers startLineNum count  -- Always positive
->         FromEnd   -> [startLineNum .. (startLineNum + fromIntegral count - 1)]  -- Consecutive negatives
+>   -- Boundary check: prevent scrolling past EOF
+>   -- When at end (FromEnd origin, lastLine == -1) and trying to scroll forward, stay at end
+>   if (origin == FromEnd && lastLine == -1 && dir == Forward)
+>     then do
+>       let pos = LinePosition startOffset firstLine lastLine origin
+>       return ([], pos)
+>     else do
+>       -- Check if file modified
+>       modified <- checkModified lc
+>       when modified $ invalidateCache lc
 >       
->       result = zip (map fst adjustedLines) lineNumbers
+>       -- Open file handle
+>       h <- ensureHandle lc
 >   
->   -- Calculate new viewport bounds after scroll
->   -- Forward: viewport shifts forward (first and last both increase by count)
->   -- Backward: viewport shifts backward (first and last both decrease by count)
->   let newOffset = extractNewPosition adjustedLines dir
->       (newFirstLine, newLastLine) = case dir of
->         Forward  -> (firstLine + fromIntegral count, lastLine + fromIntegral count)
->         Backward -> (firstLine - fromIntegral count, lastLine - fromIntegral count)
->       newPosition = LinePosition newOffset newFirstLine newLastLine origin
+>       -- Create read function starting from given offset
+>       let readFn offset size = do
+>             let absOffset = case dir of
+>                   Forward  -> startOffset + offset
+>                   Backward -> offset  -- Backward offsets are already absolute
+>             hSeek h AbsoluteSeek (fromInteger absOffset)
+>             BS.hGet h (fromInteger size)
+>           remainingSize = case dir of
+>             Forward  -> lcFileSize lc - startOffset
+>             Backward -> startOffset  -- For backward, we read from 0 to startOffset
+>       
+>       -- Scan in the specified direction
+>       linesWithOffsets <- scanLinesWithOffsets dir remainingSize readFn count
+>       
+>       -- Adjust offsets to be absolute (scanLinesWithOffsets returns relative offsets for Forward)
+>       let adjustedLines = case dir of
+>             Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
+>             Backward -> linesWithOffsets  -- Backward offsets are already absolute
+>       
+>       -- Calculate line numbers based on viewport bounds and scroll direction
+>       -- firstLine and lastLine define the current viewport span
+>       -- We're reading new lines that will shift the viewport
+>       let startLineNum = case (origin, dir) of
+>             (FromStart, Forward)  -> lastLine + 1  -- Read after current viewport
+>             (FromStart, Backward) -> firstLine - fromIntegral count  -- Read before current viewport
+>             (FromEnd, Forward)    -> lastLine + 1  -- Read toward end (less negative or beyond -1)
+>             (FromEnd, Backward)   -> firstLine - fromIntegral count  -- Read toward start (more negative)
 >
->   return (result, newPosition)
+>           lineNumbers = case origin of
+>             FromStart -> calculateForwardLineNumbers startLineNum count  -- Always positive
+>             FromEnd   -> [startLineNum .. (startLineNum + fromIntegral count - 1)]  -- Consecutive negatives
+>           
+>           result = zip (map fst adjustedLines) lineNumbers
+>       
+>       -- Calculate new viewport bounds after scroll
+>       -- Forward: viewport shifts forward (first and last both increase by count)
+>       -- Backward: viewport shifts backward (first and last both decrease by count)
+>       let newOffset = extractNewPosition adjustedLines dir
+>           (newFirstLine, newLastLine) = case dir of
+>             Forward  -> (firstLine + fromIntegral count, lastLine + fromIntegral count)
+>             Backward -> (firstLine - fromIntegral count, lastLine - fromIntegral count)
+>           newPosition = LinePosition newOffset newFirstLine newLastLine origin
+>
+>       return (result, newPosition)
 
 Cache Management
 ----------------
