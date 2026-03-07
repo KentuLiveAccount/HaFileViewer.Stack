@@ -134,9 +134,12 @@ Data Types
 >   } deriving (Show, Eq)
 
 > -- | Opaque position marker for resuming line reads
-> -- Wraps a byte offset but keeps it hidden from API consumers
-> newtype LinePosition = LinePosition Offset
->   deriving (Show, Eq)
+> -- Contains byte offset, current line number, and scan direction
+> data LinePosition = LinePosition 
+>   { lpOffset    :: Offset
+>   , lpLineNum   :: Integer
+>   , lpDirection :: Direction
+>   } deriving (Show, Eq)
 
 Creation and Lifecycle
 ----------------------
@@ -307,8 +310,10 @@ along with content, and an opaque position marker for resuming reads.
 >   let lineNumbers = calculateForwardLineNumbers 1 count
 >       result = zip (map fst linesWithOffsets) lineNumbers
 >   
->   -- Calculate new position (offset after last line read)
->   let newPosition = LinePosition $ extractNewPosition linesWithOffsets Forward
+>   -- Calculate new position (offset after last line read, line number after last line, direction forward)
+>   let newOffset = extractNewPosition linesWithOffsets Forward
+>       newLineNum = 1 + fromIntegral count  -- Next line number after reading 'count' lines
+>       newPosition = LinePosition newOffset newLineNum Forward
 >   
 >   return (result, newPosition)
 
@@ -335,8 +340,10 @@ along with content, and an opaque position marker for resuming reads.
 >   let lineNumbers = calculateBackwardLineNumbers count
 >       result = zip (map fst linesWithOffsets) lineNumbers
 >   
->   -- Calculate new position (offset of first line for backward)
->   let newPosition = LinePosition $ extractNewPosition linesWithOffsets Backward
+>   -- Calculate new position (offset of first line for backward, first line number)
+>   let newOffset = extractNewPosition linesWithOffsets Backward
+>       newLineNum = negate (fromIntegral count)  -- First line number in the result
+>       newPosition = LinePosition newOffset newLineNum Backward
 >   
 >   return (result, newPosition)
 
@@ -344,7 +351,7 @@ along with content, and an opaque position marker for resuming reads.
 > -- Returns lines with appropriate line numbers and new position to continue
 > getLinesFrom :: LineCache -> LinePosition -> Direction -> Int 
 >              -> IO ([(T.Text, Integer)], LinePosition)
-> getLinesFrom lc (LinePosition startOffset) dir count = do
+> getLinesFrom lc (LinePosition startOffset currentLineNum storedDir) dir count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
@@ -371,15 +378,18 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
 >         Backward -> linesWithOffsets  -- Backward offsets are already absolute
 >   
->   -- Generate line numbers based on direction
->   -- Note: We use 0-based here since we don't know the absolute position in file
+>   -- Calculate absolute line numbers based on current position and direction
 >   let lineNumbers = case dir of
->         Forward  -> calculateForwardLineNumbers 0 count
+>         Forward  -> calculateForwardLineNumbers currentLineNum count
 >         Backward -> calculateBackwardLineNumbers count
 >       result = zip (map fst adjustedLines) lineNumbers
 >   
->   -- Calculate new position
->   let newPosition = LinePosition $ extractNewPosition adjustedLines dir
+>   -- Calculate new position with updated line number
+>   let newOffset = extractNewPosition adjustedLines dir
+>       newLineNum = case dir of
+>         Forward  -> currentLineNum + fromIntegral count  -- Advance by count lines
+>         Backward -> currentLineNum - fromIntegral count  -- Go back by count lines
+>       newPosition = LinePosition newOffset newLineNum dir
 >   
 >   return (result, newPosition)
 
