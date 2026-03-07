@@ -80,6 +80,10 @@ Performance Characteristics:
 > import HaFileViewer.LineMap.Common (Offset)
 > import qualified HaFileViewer.Internal.SparseIndex as SI
 
+> -- | Origin point for line numbering (where did we start?)
+> data ScanOrigin = FromStart | FromEnd
+>   deriving (Show, Eq)
+
 Configuration
 -------------
 
@@ -134,11 +138,12 @@ Data Types
 >   } deriving (Show, Eq)
 
 > -- | Opaque position marker for resuming line reads
-> -- Contains byte offset, current line number, and scan direction
+> -- Contains byte offset, current line number, and origin (FromStart or FromEnd)
+> -- The origin determines line number sign and NEVER changes during scrolling
 > data LinePosition = LinePosition 
 >   { lpOffset    :: Offset
 >   , lpLineNum   :: Integer
->   , lpDirection :: Direction
+>   , lpOrigin    :: ScanOrigin
 >   } deriving (Show, Eq)
 
 Creation and Lifecycle
@@ -313,7 +318,7 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Calculate new position (offset after last line read, line number after last line, direction forward)
 >   let newOffset = extractNewPosition linesWithOffsets Forward
 >       newLineNum = 1 + fromIntegral count  -- Next line number after reading 'count' lines
->       newPosition = LinePosition newOffset newLineNum Forward
+>       newPosition = LinePosition newOffset newLineNum FromStart
 >   
 >   return (result, newPosition)
 
@@ -343,7 +348,7 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Calculate new position (offset of first line for backward, first line number)
 >   let newOffset = extractNewPosition linesWithOffsets Backward
 >       newLineNum = negate (fromIntegral count)  -- First line number in the result
->       newPosition = LinePosition newOffset newLineNum Backward
+>       newPosition = LinePosition newOffset newLineNum FromEnd
 >   
 >   return (result, newPosition)
 
@@ -351,7 +356,7 @@ along with content, and an opaque position marker for resuming reads.
 > -- Returns lines with appropriate line numbers and new position to continue
 > getLinesFrom :: LineCache -> LinePosition -> Direction -> Int 
 >              -> IO ([(T.Text, Integer)], LinePosition)
-> getLinesFrom lc (LinePosition startOffset currentLineNum storedDir) dir count = do
+> getLinesFrom lc (LinePosition startOffset currentLineNum origin) dir count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
@@ -378,19 +383,27 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
 >         Backward -> linesWithOffsets  -- Backward offsets are already absolute
 >   
->   -- Calculate absolute line numbers based on current position and direction
->   let lineNumbers = case dir of
->         Forward  -> calculateForwardLineNumbers currentLineNum count
->         Backward -> calculateBackwardLineNumbers count
+>   -- Calculate line numbers based on ORIGIN (not scroll direction)
+>   -- Origin determines the sign; scroll direction determines the starting point
+>   let startLineNum = case (origin, dir) of
+>         (FromStart, Forward)  -> currentLineNum  -- Start from current position
+>         (FromStart, Backward) -> currentLineNum - fromIntegral count  -- Previous positive lines
+>         (FromEnd, Forward)    -> currentLineNum + fromIntegral count  -- Less negative (toward end)
+>         (FromEnd, Backward)   -> currentLineNum - 1  -- More negative (toward start)
+>
+>       lineNumbers = case origin of
+>         FromStart -> calculateForwardLineNumbers startLineNum count  -- Always positive
+>         FromEnd   -> calculateBackwardLineNumbers (abs (fromInteger startLineNum))  -- Always negative
+>       
 >       result = zip (map fst adjustedLines) lineNumbers
 >   
->   -- Calculate new position with updated line number
+>   -- Calculate new position - origin NEVER changes, only offset and line number
 >   let newOffset = extractNewPosition adjustedLines dir
 >       newLineNum = case dir of
 >         Forward  -> currentLineNum + fromIntegral count  -- Advance by count lines
 >         Backward -> currentLineNum - fromIntegral count  -- Go back by count lines
->       newPosition = LinePosition newOffset newLineNum dir
->   
+>       newPosition = LinePosition newOffset newLineNum origin  -- Keep same origin!
+>
 >   return (result, newPosition)
 
 Cache Management
