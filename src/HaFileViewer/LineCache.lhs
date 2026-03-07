@@ -30,6 +30,7 @@ Performance Characteristics:
 >     LineCache
 >   , CacheConfig(..)
 >   , CacheStats(..)
+>   , LinePosition  -- Opaque type, constructor not exported
 >     
 >     -- * Creation and lifecycle
 >   , openLineCache
@@ -42,6 +43,11 @@ Performance Characteristics:
 >   , getLine
 >   , getTotalLines
 >     
+>     -- * New line-oriented API with positions
+>   , getLinesFromStart
+>   , getLinesFromEnd
+>   , getLinesFrom
+>     
 >     -- * Cache management
 >   , clearCache
 >   , invalidateCache
@@ -49,6 +55,11 @@ Performance Characteristics:
 >     
 >     -- * Configuration
 >   , defaultConfig
+>     
+>     -- * Pure helper functions (exported for testing)
+>   , calculateForwardLineNumbers
+>   , calculateBackwardLineNumbers
+>   , extractNewPosition
 >   ) where
 
 > import Prelude hiding (lookup, getLine)
@@ -121,6 +132,11 @@ Data Types
 >   , csSparseSize    :: Int     -- ^ Sparse index size
 >   , csTotalScanned  :: Integer -- ^ Total lines scanned
 >   } deriving (Show, Eq)
+
+> -- | Opaque position marker for resuming line reads
+> -- Wraps a byte offset but keeps it hidden from API consumers
+> newtype LinePosition = LinePosition Offset
+>   deriving (Show, Eq)
 
 Creation and Lifecycle
 ----------------------
@@ -220,6 +236,38 @@ Query Operations
 >     (l:_) -> Just l
 >     []    -> Nothing
 
+Pure Helper Functions for New API
+----------------------------------
+
+These pure functions are used by getLinesFromStart, getLinesFromEnd, and getLinesFrom.
+They are extracted for testability - see test_linecache_pure.hs for unit tests.
+
+> -- | Calculate line numbers for forward reading
+> -- Starting from a given line number, generate N sequential line numbers
+> calculateForwardLineNumbers :: Integer -> Int -> [Integer]
+> calculateForwardLineNumbers startLine count = 
+>   take count [startLine..]
+
+> -- | Calculate line numbers for backward reading (from end of file)
+> -- Always generates negative numbers: [-count, -count+1, ..., -2, -1]
+> calculateBackwardLineNumbers :: Int -> [Integer]
+> calculateBackwardLineNumbers count = 
+>   if count <= 0 
+>     then []
+>     else [negate (fromIntegral count) .. (-1)]
+
+> -- | Extract new position from scan results
+> -- For Forward: take offset after last line
+> -- For Backward: take offset of first line
+> extractNewPosition :: [(T.Text, Offset)] -> Direction -> Offset
+> extractNewPosition [] _ = 0  -- Empty result, stay at same position
+> extractNewPosition results Forward = 
+>   let (lastText, lastOffset) = last results
+>       lastLineLength = fromIntegral $ BS.length $ TE.encodeUtf8 lastText
+>   in lastOffset + lastLineLength + 1  -- +1 for newline character
+> extractNewPosition results Backward = 
+>   snd (head results)  -- First line's offset
+
 > -- | Get total number of lines (lazy - scans if unknown)
 > getTotalLines :: LineCache -> IO Integer
 > getTotalLines lc = do
@@ -229,6 +277,111 @@ Query Operations
 >     Nothing -> do
 >       -- TODO: Scan to find total
 >       return 0  -- Placeholder
+
+New Line-Oriented API with Positions
+-------------------------------------
+
+These functions provide a bidirectional line scanning API that returns line numbers
+along with content, and an opaque position marker for resuming reads.
+
+> -- | Read N lines from start of file (forward)
+> -- Returns lines with positive line numbers [1, 2, 3, ...] and position to continue
+> getLinesFromStart :: LineCache -> Int -> IO ([(T.Text, Integer)], LinePosition)
+> getLinesFromStart lc count = do
+>   -- Check if file modified
+>   modified <- checkModified lc
+>   when modified $ invalidateCache lc
+>   
+>   -- Open file handle
+>   h <- ensureHandle lc
+>   
+>   -- Scan from offset 0
+>   let readFn offset size = do
+>         hSeek h AbsoluteSeek (fromInteger offset)
+>         BS.hGet h (fromInteger size)
+>   
+>   -- Use scanLinesWithOffsets to get lines with their byte offsets
+>   linesWithOffsets <- scanLinesWithOffsets Forward (lcFileSize lc) readFn count
+>   
+>   -- Generate line numbers starting from 1 (not 0-based)
+>   let lineNumbers = calculateForwardLineNumbers 1 count
+>       result = zip (map fst linesWithOffsets) lineNumbers
+>   
+>   -- Calculate new position (offset after last line read)
+>   let newPosition = LinePosition $ extractNewPosition linesWithOffsets Forward
+>   
+>   return (result, newPosition)
+
+> -- | Read N lines from end of file (backward)
+> -- Returns lines with negative line numbers [-N, -N+1, ..., -1] and position to continue
+> getLinesFromEnd :: LineCache -> Int -> IO ([(T.Text, Integer)], LinePosition)
+> getLinesFromEnd lc count = do
+>   -- Check if file modified
+>   modified <- checkModified lc
+>   when modified $ invalidateCache lc
+>   
+>   -- Open file handle
+>   h <- ensureHandle lc
+>   
+>   -- Scan backward from end of file
+>   let readFn offset size = do
+>         hSeek h AbsoluteSeek (fromInteger offset)
+>         BS.hGet h (fromInteger size)
+>   
+>   -- Use scanLinesWithOffsets in backward mode
+>   linesWithOffsets <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
+>   
+>   -- Generate negative line numbers [-count, -count+1, ..., -1]
+>   let lineNumbers = calculateBackwardLineNumbers count
+>       result = zip (map fst linesWithOffsets) lineNumbers
+>   
+>   -- Calculate new position (offset of first line for backward)
+>   let newPosition = LinePosition $ extractNewPosition linesWithOffsets Backward
+>   
+>   return (result, newPosition)
+
+> -- | Read N lines from a given position in specified direction
+> -- Returns lines with appropriate line numbers and new position to continue
+> getLinesFrom :: LineCache -> LinePosition -> Direction -> Int 
+>              -> IO ([(T.Text, Integer)], LinePosition)
+> getLinesFrom lc (LinePosition startOffset) dir count = do
+>   -- Check if file modified
+>   modified <- checkModified lc
+>   when modified $ invalidateCache lc
+>   
+>   -- Open file handle
+>   h <- ensureHandle lc
+>   
+>   -- Create read function starting from given offset
+>   let readFn offset size = do
+>         let absOffset = case dir of
+>               Forward  -> startOffset + offset
+>               Backward -> offset  -- Backward offsets are already absolute
+>         hSeek h AbsoluteSeek (fromInteger absOffset)
+>         BS.hGet h (fromInteger size)
+>       remainingSize = case dir of
+>         Forward  -> lcFileSize lc - startOffset
+>         Backward -> startOffset  -- For backward, we read from 0 to startOffset
+>   
+>   -- Scan in the specified direction
+>   linesWithOffsets <- scanLinesWithOffsets dir remainingSize readFn count
+>   
+>   -- Adjust offsets to be absolute (scanLinesWithOffsets returns relative offsets for Forward)
+>   let adjustedLines = case dir of
+>         Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
+>         Backward -> linesWithOffsets  -- Backward offsets are already absolute
+>   
+>   -- Generate line numbers based on direction
+>   -- Note: We use 0-based here since we don't know the absolute position in file
+>   let lineNumbers = case dir of
+>         Forward  -> calculateForwardLineNumbers 0 count
+>         Backward -> calculateBackwardLineNumbers count
+>       result = zip (map fst adjustedLines) lineNumbers
+>   
+>   -- Calculate new position
+>   let newPosition = LinePosition $ extractNewPosition adjustedLines dir
+>   
+>   return (result, newPosition)
 
 Cache Management
 ----------------

@@ -5,17 +5,14 @@ module HaFileViewer.CUILogViewer.ViewState
   , ScanOrigin(..)
   , LineWithNumber
     
-    -- * Functions (to be implemented in later steps)
+    -- * Functions
   , calculateDisplayLineNumber
   , shiftViewportDown
   , shiftViewportUp
-  , updateCursorForward
-  , updateCursorBackward
   ) where
 
 import qualified Data.Text as T
-import HaFileViewer.LineCache (LineCache)
-import HaFileViewer.LineMap.Common (Offset)
+import HaFileViewer.LineCache (LineCache, LinePosition)
 
 -- | Origin point for scanning operations
 data ScanOrigin 
@@ -25,9 +22,9 @@ data ScanOrigin
 
 -- | Cursor tracking position in file
 data ViewCursor = ViewCursor
-  { cursorOffset   :: Offset    -- ^ Current byte position in file
-  , cursorLineNum  :: Integer   -- ^ Number of lines read from origin
-  , cursorOrigin   :: ScanOrigin  -- ^ Scan direction (forward/backward)
+  { cursorPosition :: LinePosition -- ^ Opaque position marker in file
+  , cursorLineNum  :: Integer      -- ^ Number of lines read from origin
+  , cursorOrigin   :: ScanOrigin   -- ^ Scan direction (forward/backward)
   } deriving (Show, Eq)
 
 -- | Line with its display line number
@@ -40,7 +37,6 @@ data ViewState = ViewState
   , vsViewport     :: [LineWithNumber]    -- ^ Currently visible lines
   , vsViewportSize :: Int                 -- ^ Number of lines to display
   , vsFilePath     :: FilePath            -- ^ Path to the file being viewed
-  , vsFileSize     :: Integer             -- ^ Size of file in bytes
   }
 
 -- | Calculate display line number based on cursor position and relative index
@@ -64,23 +60,3 @@ shiftViewportDown viewport newLine maxSize =
 shiftViewportUp :: LineWithNumber -> [LineWithNumber] -> Int -> [LineWithNumber]
 shiftViewportUp newLine viewport maxSize =
   take maxSize (newLine : viewport)
-
--- | Update cursor after reading lines forward
-updateCursorForward :: ViewCursor -> [(T.Text, Offset)] -> ViewCursor
-updateCursorForward cursor linesRead =
-  let linesCount = length linesRead
-      newOffset = if null linesRead 
-                  then cursorOffset cursor 
-                  else snd (last linesRead)
-      newLineNum = cursorLineNum cursor + fromIntegral linesCount
-  in cursor { cursorOffset = newOffset, cursorLineNum = newLineNum }
-
--- | Update cursor after reading lines backward
-updateCursorBackward :: ViewCursor -> [(T.Text, Offset)] -> ViewCursor  
-updateCursorBackward cursor linesRead =
-  let linesCount = length linesRead
-      newOffset = if null linesRead 
-                  then cursorOffset cursor 
-                  else snd (head linesRead)
-      newLineNum = cursorLineNum cursor + fromIntegral linesCount
-  in cursor { cursorOffset = newOffset, cursorLineNum = newLineNum }

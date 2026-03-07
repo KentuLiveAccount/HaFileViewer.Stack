@@ -465,8 +465,9 @@ For backward scans, pieces are reversed but offsets are adjusted to maintain fil
 >       edgeOffset = if null pieceOffsets then partialOffset else head pieceOffsets
 >       -- CRITICAL: When combining partial + edge, use partial's offset (not edge's)
 >       -- The partial started earlier in the file!
+>       -- EXCEPTION: If partial is empty, use edge's offset
 >       edgeLine = combinePartial partial edgePiece
->       edgeLineOffset = partialOffset  -- Combined line starts where partial started
+>       edgeLineOffset = if BS.null partial then edgeOffset else partialOffset
 >       middleLines = stratGetMiddle strat pieces
 >       -- Get offsets for middle pieces (apply same transformation as for lines)
 >       middleOffsets = if null pieceOffsets || length pieceOffsets < 2
