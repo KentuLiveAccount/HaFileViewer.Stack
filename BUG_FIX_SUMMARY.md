@@ -1,7 +1,7 @@
-# Bug Fix Summary: Bug #4 and Bug #5
+# Bug Fix Summary: Complete Bug History
 
-## Date
-Fixed on current session
+## Last Updated
+2026-03-08 (Checkpoint 007: Test Refactor & Complete Bug Elimination)
 
 ## Bugs Fixed
 
@@ -214,3 +214,116 @@ FromEnd   -> [startLineNum .. (startLineNum + fromIntegral count - 1)]  -- ✅ C
 ---
 
 **Status**: Both bugs FIXED and verified ✅ (Second fix applied for Bug #5)
+
+---
+
+## Bug #6: Test/Code Divergence (Critical Discovery)
+
+### Date: 2026-03-08
+**Status**: ✅ FIXED (Refactor Complete)
+
+### Problem
+Tests were **simulating** Main.hs functions with correct logic, while Main.hs had bugs.
+- Tests: 20/20 passing ✅
+- Manual testing: Broken ❌
+- **False confidence!**
+
+### Root Cause
+```haskell
+// Test code (simulated - CORRECT):
+if cursorOrigin cursor == FromStart && firstLineNum <= 1
+  then return vs
+
+// Main.hs (actual - BUGGY):
+if firstLineNum <= 1  -- Missing cursorOrigin check!
+  then return vs
+```
+
+### Why Bugs Were Hidden
+At EOF, lines are negative (e.g., -25).
+- Check: `-25 <= 1` evaluates to TRUE
+- So scrollUp/pageUp blocked incorrectly at end
+- But tests had correct logic, so passed!
+
+### Solution: Extract Operations Module
+**Commit e571bff**: "Refactor: Extract Operations module and make tests use real code"
+
+1. Created `app/CUILogViewer/Operations.hs`
+   - Extracted all scroll/jump functions from Main.hs
+   - 228 lines of pure business logic
+
+2. Updated Main.hs to import Operations
+   - Went from ~360 lines to ~141 lines
+   - Now a thin UI layer
+
+3. Updated test_ui_systematic.hs to import Operations
+   - Removed ~150 lines of simulated functions
+   - Now uses real code: `simulateScrollDown = Ops.scrollDown`
+
+**Result after refactor:**
+- Tests: 18/20 passing (exposed 2 real bugs!)
+- Test #6: FAIL ❌
+- Test #20: FAIL ❌
+
+---
+
+## Bug #7 & #8: scrollUp and pageUp Missing cursorOrigin Check
+
+### Date: 2026-03-08
+**Status**: ✅ FIXED
+
+### Bugs Exposed by Test Refactor
+Once tests used real code, they caught two related bugs:
+
+**Bug #7 (scrollUp - Operations.hs line 95)**:
+```haskell
+// WRONG:
+if firstLineNum <= 1  -- Blocks at EOF too! (-25 <= 1)
+  then return vs
+
+// FIXED:
+if cursorOrigin cursor == FromStart && firstLineNum <= 1
+  then return vs
+```
+
+**Bug #8 (pageUp - Operations.hs line 161)**:
+Same issue - missing cursorOrigin check.
+
+### Solution
+**Commit 43c2eba**: "Fix: Add cursorOrigin check to scrollUp and pageUp"
+
+Added `cursorOrigin cursor == FromStart &&` to boundary checks in both functions.
+
+**Why this works:**
+- At actual start: `FromStart` + `firstLineNum=1` → block ✅
+- At end: `FromEnd` + `firstLineNum=-25` → allow scrolling ✅
+
+### Testing Results
+- **Before fix**: 18/20 tests passing
+- **After fix**: 20/20 tests passing ✅
+- **Manual testing**: G + arrows work perfectly ✅
+
+---
+
+## Summary: All Bugs Fixed ✅
+
+| Bug | Description | Status | Commit |
+|-----|-------------|--------|--------|
+| #4 | Line numbers flip negative after direction change | ✅ Fixed | 3036fa2 |
+| #5 | Up arrow doesn't work after G | ✅ Fixed | a3a5d88 + 9ea5524 |
+| #6 | Test/code divergence (false confidence) | ✅ Fixed | e571bff |
+| #7 | scrollUp blocks at EOF | ✅ Fixed | 43c2eba |
+| #8 | pageUp blocks at EOF | ✅ Fixed | 43c2eba |
+
+**Current State:**
+- ✅ 20/20 automated tests passing
+- ✅ Manual testing works correctly
+- ✅ Clean architecture (Operations module extracted)
+- ✅ Tests use real code (no more divergence)
+
+**Key Lesson Learned:**
+Never simulate code in tests - extract business logic into importable modules and test the real code. This prevents test/code divergence and ensures tests catch actual bugs.
+
+===============================================
+All Bugs Fixed - System Working Correctly ✅
+===============================================
