@@ -210,45 +210,20 @@ Query Operations
 
 > -- | Get lines starting at given position (main API)
 > -- Handles all caching internally
+> -- | DEPRECATED: Get N lines starting from a line number
+> -- Use getLinesFromStart, getLinesFromEnd, or getLinesFrom instead
 > getLines :: LineCache 
 >          -> Integer    -- ^ Start line (0-based)
 >          -> Int        -- ^ Number of lines
 >          -> IO [T.Text]
-> getLines lc startLine count = do
->   -- Check if file modified
->   modified <- checkModified lc
->   when modified $ invalidateCache lc
->   
->   -- Try content cache first
->   cached <- tryContentCache lc startLine count
->   case cached of
->     Just lines -> return lines
->     Nothing -> do
->       -- Cache miss - need to scan
->       -- Find best starting point using sparse index
->       (scanStartLine, scanStartOffset) <- findStartOffset lc startLine
->       
->       -- Debug output
->       -- putStrLn $ "DEBUG: Scanning from line " ++ show scanStartLine ++ " offset " ++ show scanStartOffset
->       
->       -- Scan from that offset to get all lines up to and including our target
->       scannedLines <- scanFromOffset lc scanStartOffset scanStartLine startLine count
->       
->       -- Cache everything we scanned (bulk insert with LRU)
->       cacheResult lc scannedLines
->       
->       -- Extract and return just the requested range
->       let result = extractRange startLine count scannedLines
->       -- putStrLn $ "DEBUG: Extracted " ++ show (length result) ++ " lines from range"
->       return result
+> getLines _lc _startLine _count = 
+>   error "getLines is deprecated. Use getLinesFromStart/getLinesFromEnd/getLinesFrom instead."
 
-> -- | Get a single line (convenience)
+> -- | DEPRECATED: Get a single line (convenience)
+> -- Use getLinesFromStart, getLinesFromEnd, or getLinesFrom instead
 > getLine :: LineCache -> Integer -> IO (Maybe T.Text)
-> getLine lc lineNum = do
->   lines <- getLines lc lineNum 1
->   return $ case lines of
->     (l:_) -> Just l
->     []    -> Nothing
+> getLine _lc _lineNum = 
+>   error "getLine is deprecated. Use getLinesFromStart/getLinesFromEnd/getLinesFrom instead."
 
 Pure Helper Functions for New API
 ----------------------------------
