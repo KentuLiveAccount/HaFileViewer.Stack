@@ -441,19 +441,7 @@ Internal Helper Functions
 >   newTime <- getModificationTime (lcFilePath lc)
 >   return $ newTime > oldTime
 
-> -- | Try to get lines from content cache
-> -- Returns Nothing if any line is missing
-> tryContentCache :: LineCache -> Integer -> Int -> IO (Maybe [T.Text])
-> tryContentCache lc startLine count = do
->   cache <- readIORef (lcContent lc)
->   let lineNums = [startLine .. startLine + fromIntegral count - 1]
->   let cachedLines = mapM (\ln -> Map.lookup ln cache) lineNums
->   case cachedLines of
->     Just lines -> do
->       -- Update LRU order for cache hits
->       updateLRU lc lineNums
->       return $ Just lines
->     Nothing -> return Nothing
+
 
 > -- | Update LRU order (move accessed lines to end)
 > updateLRU :: LineCache -> [Integer] -> IO ()
@@ -462,48 +450,9 @@ Internal Helper Functions
 >   let lru' = filter (`notElem` accessed) lru ++ accessed
 >   writeIORef (lcLRUOrder lc) lru'
 
-> -- | Find the best starting offset for scanning using sparse index
-> -- Returns (startLineNum, startOffset)
-> findStartOffset :: LineCache -> Integer -> IO (Integer, Offset)
-> findStartOffset lc targetLine = do
->   sparseIdx <- readIORef (lcSparseIdx lc)
->   case SI.lookupNearest targetLine sparseIdx of
->     Just (lineNum, offset) -> return (lineNum, offset)
->     Nothing -> return (0, 0)  -- Start from beginning if no index
 
-> -- | Scan from a given offset and collect lines with their byte offsets
-> -- Returns list of (lineNum, lineContent, byteOffset) for all lines scanned
-> scanFromOffset :: LineCache 
->                -> Offset      -- ^ Starting offset
->                -> Integer     -- ^ Starting line number
->                -> Integer     -- ^ Target line number
->                -> Int         -- ^ Number of lines to get
->                -> IO [(Integer, T.Text, Offset)]
-> scanFromOffset lc startOffset startLine targetLine count = do
->   -- Open file handle if not already open
->   h <- ensureHandle lc
->   
->   -- Calculate how many lines we need to scan
->   let linesToScan = fromInteger (targetLine - startLine) + count
->       fileSize = lcFileSize lc
->   
->   -- Create read function for scanLines
->   let readFn offset size = do
->         hSeek h AbsoluteSeek (fromInteger offset)
->         BS.hGet h (fromInteger size)
->   
->   -- Scan forward from startOffset using new API with offsets
->   let adjustedReadFn off size = readFn (startOffset + off) size
->       remainingSize = fileSize - startOffset
->   
->   linesWithOffsets <- scanLinesWithOffsets Forward remainingSize adjustedReadFn linesToScan
->   
->   -- Pair with line numbers and adjust offsets (scanLinesWithOffsets returns offsets relative to read start)
->   let lineNums = [startLine..]
->       result = [(lineNum, text, startOffset + off) 
->                | (lineNum, (text, off)) <- zip lineNums linesWithOffsets]
->   
->   return result
+
+
 
 > -- | Ensure file handle is open
 > ensureHandle :: LineCache -> IO Handle
@@ -516,19 +465,7 @@ Internal Helper Functions
 >       writeIORef (lcHandle lc) (Just h)
 >       return h
 
-> -- | Cache the scan result with LRU eviction and sparse index updates
-> cacheResult :: LineCache -> [(Integer, T.Text, Offset)] -> IO ()
-> cacheResult lc scannedLines = do
->   -- Update sparse index for every Kth line with REAL offsets
->   let indexStep = lcIndexStep lc
->       indexEntries = [(ln, off) | (ln, _, off) <- scannedLines, ln `mod` fromIntegral indexStep == 0]
->   
->   sparseIdx <- readIORef (lcSparseIdx lc)
->   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
->   writeIORef (lcSparseIdx lc) sparseIdx'
->   
->   -- Insert lines into content cache with LRU eviction
->   mapM_ (\(ln, text, _off) -> insertWithEviction lc ln text) scannedLines
+
 
 > -- | Insert a single line into cache with LRU eviction
 > insertWithEviction :: LineCache -> Integer -> T.Text -> IO ()
@@ -557,10 +494,4 @@ Internal Helper Functions
 >   writeIORef (lcContent lc) cache''
 >   writeIORef (lcLRUOrder lc) lru''
 
-> -- | Extract requested range from scanned lines
-> extractRange :: Integer -> Int -> [(Integer, T.Text, Offset)] -> [T.Text]
-> extractRange startLine count scannedLines =
->   let endLine = startLine + fromInteger (toInteger count) - 1
->       inRange (ln, _, _) = ln >= startLine && ln <= endLine
->       rangeLines = filter inRange scannedLines
->   in map (\(_, text, _) -> text) rangeLines
+
