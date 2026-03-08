@@ -91,8 +91,8 @@ scrollUp vs = do
       let (firstLineNum, _) = head viewport
       
       -- Can't scroll up if we're at line 1 (beginning of file)
-      -- BUG: Missing cursorOrigin check - blocks at end too!
-      if firstLineNum <= 1
+      -- Only block at start (FromStart origin), allow scrolling from end (negative lines)
+      if cursorOrigin cursor == FromStart && firstLineNum <= 1
         then return vs
         else do
           -- Use cursor position to read 1 line backward
@@ -156,9 +156,9 @@ pageUp vs = do
       -- Get the line number of the first line in viewport
       let (firstLineNum, _) = head viewport
       
-      -- Can't page up if we're at line 1 or before
-      -- BUG: Missing cursorOrigin check - blocks at end too!
-      if firstLineNum <= 1
+      -- Can't page up if we're at beginning (line 1 with FromStart)
+      -- Only block at start (FromStart origin), allow paging from end (negative lines)
+      if cursorOrigin cursor == FromStart && firstLineNum <= 1
         then return vs
         else do
           -- Read a full page backward
