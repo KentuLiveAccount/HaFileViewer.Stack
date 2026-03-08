@@ -2,6 +2,7 @@
 
 -- Systematic UI testing for CUILogViewer
 -- Tests all basic operations and verifies invariants
+-- NOW USES ACTUAL OPERATIONS FROM Operations.hs (not simulated!)
 
 module Main where
 
@@ -10,9 +11,14 @@ import HaFileViewer.LineCache
 import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.BidirectionalScanner (Direction(..))
 import System.IO (writeFile)
-import System.Directory (removeFile)
+import System.Directory (removeFile, getCurrentDirectory, setCurrentDirectory)
 import Control.Exception (bracket)
 import Control.Monad (when, foldM)
+
+-- Import actual operations - these will be the REAL functions from Main.hs
+-- We need to add the CUILogViewer app directory to the module path
+-- For now, we'll manually load Operations module
+import qualified Operations as Ops
 
 -- Test file setup
 testFile :: FilePath
@@ -25,110 +31,23 @@ createTestFile = writeFile testFile $ unlines [show i | i <- [1..100]]
 cleanupTestFile :: IO ()
 cleanupTestFile = removeFile testFile
 
--- Helper to create initial state (like runViewer does)
+-- Helper to create initial state using Operations module
 initializeViewer :: IO ViewState
-initializeViewer = do
-  cache <- openLineCache testFile
-  (initialLines, initialPosition) <- getLinesFromStart cache 25
-  let swappedLines = [(lineNum, text) | (text, lineNum) <- initialLines]
-      cursor = ViewCursor 
-        { cursorPosition = initialPosition
-        , cursorOrigin = lpOrigin initialPosition
-        }
-  return ViewState
-    { vsCache = cache
-    , vsCursor = cursor
-    , vsViewport = swappedLines
-    , vsViewportSize = 25
-    , vsFilePath = testFile
-    }
+initializeViewer = Ops.initializeViewer testFile 25
 
--- Simulate scrollDown (from Main.hs)
+-- Now using real Operations module - no more simulated functions!
+-- Direct aliases to Operations functions
 simulateScrollDown :: ViewState -> IO ViewState
-simulateScrollDown vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
-      viewport = vsViewport vs
-  
-  if null viewport
-    then return vs
-    else do
-      (moreLines, newPosition) <- getLinesFrom cache (cursorPosition cursor) Forward 1
-      
-      if null moreLines
-        then return vs
-        else do
-          let (text, lineNum) = head moreLines
-              newLine = (lineNum, text)
-              newViewport = shiftViewportDown viewport newLine (vsViewportSize vs)
-              newCursor = cursor { cursorPosition = newPosition }
-          
-          return vs { vsViewport = newViewport, vsCursor = newCursor }
+simulateScrollDown = Ops.scrollDown
 
--- Simulate scrollUp (from Main.hs)
-simulateScrollUp :: ViewState -> IO ViewState
-simulateScrollUp vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
-      viewport = vsViewport vs
-  
-  if null viewport
-    then return vs
-    else do
-      let (firstLineNum, _) = head viewport
-      
-      if cursorOrigin cursor == FromStart && firstLineNum <= 1
-        then return vs
-        else do
-          (prevLines, newPosition) <- getLinesFrom cache (cursorPosition cursor) Backward 1
-          
-          if null prevLines
-            then return vs
-            else do
-              let (text, lineNum) = head prevLines
-                  newLine = (lineNum, text)
-                  newViewport = shiftViewportUp newLine viewport (vsViewportSize vs)
-                  newCursor = cursor { cursorPosition = newPosition }
-              
-              return vs { vsViewport = newViewport, vsCursor = newCursor }
+simulateScrollUp :: ViewState -> IO ViewState  
+simulateScrollUp = Ops.scrollUp
 
--- Simulate jumpToEnd (from Main.hs)
 simulateJumpToEnd :: ViewState -> IO ViewState
-simulateJumpToEnd vs = do
-  let cache = vsCache vs
-      pageSize = vsViewportSize vs
-  
-  (linesWithNumbers, newPosition) <- getLinesFromEnd cache pageSize
-  
-  if null linesWithNumbers
-    then return vs
-    else do
-      let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
-          newCursor = ViewCursor
-            { cursorPosition = newPosition
-            , cursorOrigin = lpOrigin newPosition
-            }
-      
-      return vs { vsViewport = swappedLines, vsCursor = newCursor }
+simulateJumpToEnd = Ops.jumpToEnd
 
--- Simulate jumpToStart (from Main.hs)
 simulateJumpToStart :: ViewState -> IO ViewState
-simulateJumpToStart vs = do
-  let cache = vsCache vs
-      pageSize = vsViewportSize vs
-  
-  (linesWithNumbers, newPosition) <- getLinesFromStart cache pageSize
-  
-  if null linesWithNumbers
-    then return vs
-    else do
-      let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
-          newCursor = ViewCursor
-            { cursorPosition = newPosition
-            , cursorOrigin = lpOrigin newPosition
-            }
-      
-      return vs { vsViewport = swappedLines, vsCursor = newCursor }
+simulateJumpToStart = Ops.jumpToStart
 
 -- Helper to extract viewport info
 getViewportInfo :: ViewState -> (Integer, Integer, Int)
@@ -427,6 +346,31 @@ testDownAtEndDoesNothing = do
   -- After reaching end, more downs should not change state
   return $ end1 == end2
 
+-- Test 20: Arrow keys work after jump to end (Bug discovered in manual testing)
+testArrowKeysAfterJumpToEnd :: IO Bool
+testArrowKeysAfterJumpToEnd = do
+  vs0 <- initializeViewer
+  -- Jump to end with G
+  vs1 <- simulateJumpToEnd vs0
+  let (endFirst, endLast, endCount) = getViewportInfo vs1
+  
+  -- Try scrolling up - should work
+  vs2 <- simulateScrollUp vs1
+  let (upFirst, upLast, upCount) = getViewportInfo vs2
+  
+  -- Should have moved up (first line more negative)
+  let upWorked = upFirst < endFirst && upCount == 25
+  
+  -- Try scrolling down from end - should do nothing (at EOF)
+  vs3 <- simulateScrollDown vs1
+  let (downFirst, downLast, downCount) = getViewportInfo vs3
+  
+  -- Should stay at same position (at EOF)
+  let downStaysAtEnd = downFirst == endFirst && downLast == endLast
+  
+  closeLineCache (vsCache vs3)
+  return $ upWorked && downStaysAtEnd
+
 -- ============================================================================
 -- MAIN
 -- ============================================================================
@@ -462,6 +406,7 @@ main = bracket
     putStrLn "\n--- Boundary Conditions ---"
     runTest "18. Up at start does nothing" testUpAtStartDoesNothing
     runTest "19. Down at end does nothing" testDownAtEndDoesNothing
+    runTest "20. Arrow keys work after jump to end" testArrowKeysAfterJumpToEnd
     
     putStrLn "\n================================"
   )

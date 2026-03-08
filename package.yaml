@@ -39,6 +39,8 @@ executables:
   cui-log-viewer:
     main: Main.hs
     source-dirs: app/CUILogViewer
+    other-modules:
+      - Operations
     ghc-options: -threaded -rtsopts -with-rtsopts=-N
     dependencies:
       - ha-file-viewer
@@ -80,13 +82,17 @@ tests:
 
   ui-systematic-test:
     main: test_ui_systematic.hs
-    source-dirs: .
-    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    source-dirs:
+      - .
+      - app/CUILogViewer
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
     dependencies:
       - ha-file-viewer
       - base
       - text
       - directory
+      - brick >= 2.0
+      - vty
 
   ha-file-viewer-test2:
     main: Spec.hs

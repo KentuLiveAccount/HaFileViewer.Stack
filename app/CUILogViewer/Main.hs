@@ -10,10 +10,10 @@ import qualified Graphics.Vty as V
 import qualified Data.Text as T
 import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.LineCache
-import HaFileViewer.BidirectionalScanner (Direction(..))
 import System.Environment (getArgs)
 import System.Directory (doesFileExist)
 import Control.Monad.IO.Class (liftIO)
+import qualified Operations as Ops
 
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)
@@ -68,233 +68,56 @@ handleEvent (VtyEvent (V.EvKey V.KEsc [])) = halt
 -- Scroll down (↓ or j)
 handleEvent (VtyEvent (V.EvKey V.KDown [])) = do
   vs <- get
-  vs' <- liftIO (scrollDown vs)
+  vs' <- liftIO (Ops.scrollDown vs)
   put vs'
 handleEvent (VtyEvent (V.EvKey (V.KChar 'j') [])) = do
   vs <- get
-  vs' <- liftIO (scrollDown vs)
+  vs' <- liftIO (Ops.scrollDown vs)
   put vs'
 
 -- Scroll up (↑ or k)
 handleEvent (VtyEvent (V.EvKey V.KUp [])) = do
   vs <- get
-  vs' <- liftIO (scrollUp vs)
+  vs' <- liftIO (Ops.scrollUp vs)
   put vs'
 handleEvent (VtyEvent (V.EvKey (V.KChar 'k') [])) = do
   vs <- get
-  vs' <- liftIO (scrollUp vs)
+  vs' <- liftIO (Ops.scrollUp vs)
   put vs'
 
 -- Page down (PgDn)
 handleEvent (VtyEvent (V.EvKey V.KPageDown [])) = do
   vs <- get
-  vs' <- liftIO (pageDown vs)
+  vs' <- liftIO (Ops.pageDown vs)
   put vs'
 
 -- Page up (PgUp)
 handleEvent (VtyEvent (V.EvKey V.KPageUp [])) = do
   vs <- get
-  vs' <- liftIO (pageUp vs)
+  vs' <- liftIO (Ops.pageUp vs)
   put vs'
 
 -- Jump to start (Home or g)
 handleEvent (VtyEvent (V.EvKey V.KHome [])) = do
   vs <- get
-  vs' <- liftIO (jumpToStart vs)
+  vs' <- liftIO (Ops.jumpToStart vs)
   put vs'
 handleEvent (VtyEvent (V.EvKey (V.KChar 'g') [])) = do
   vs <- get
-  vs' <- liftIO (jumpToStart vs)
+  vs' <- liftIO (Ops.jumpToStart vs)
   put vs'
 
 -- Jump to end (End or G)
 handleEvent (VtyEvent (V.EvKey V.KEnd [])) = do
   vs <- get
-  vs' <- liftIO (jumpToEnd vs)
+  vs' <- liftIO (Ops.jumpToEnd vs)
   put vs'
 handleEvent (VtyEvent (V.EvKey (V.KChar 'G') [])) = do
   vs <- get
-  vs' <- liftIO (jumpToEnd vs)
+  vs' <- liftIO (Ops.jumpToEnd vs)
   put vs'
 
 handleEvent _ = return ()
-
--- Scrolling operations
-scrollDown :: ViewState -> IO ViewState
-scrollDown vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
-      viewport = vsViewport vs
-  
-  -- At EOF or empty viewport, don't scroll
-  if null viewport
-    then return vs
-    else do
-      -- Use the cursor position to read 1 more line forward
-      (moreLines, newPosition) <- getLinesFrom cache (cursorPosition cursor) Forward 1
-      
-      if null moreLines
-        then return vs  -- At EOF, don't change state
-        else do
-          -- Get the line with its number (swap tuple order: API returns (Text, Integer))
-          let (text, lineNum) = head moreLines
-              newLine = (lineNum, text)
-          
-          -- Shift viewport down
-          let newViewport = shiftViewportDown viewport newLine (vsViewportSize vs)
-          
-          -- Update cursor - use lpLineNum from newPosition, don't track separately
-          let newCursor = cursor 
-                { cursorPosition = newPosition
-                }
-          
-          return vs { vsViewport = newViewport, vsCursor = newCursor }
-
-scrollUp :: ViewState -> IO ViewState
-scrollUp vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
-      viewport = vsViewport vs
-  
-  -- Can't scroll up from beginning or empty viewport
-  if null viewport
-    then return vs
-    else do
-      -- Get the line number of the first line in viewport
-      let (firstLineNum, _) = head viewport
-      
-      -- Can't scroll up if we're at line 1 (beginning of file)
-      if firstLineNum <= 1
-        then return vs
-        else do
-          -- Use cursor position to read 1 line backward
-          (prevLines, newPosition) <- getLinesFrom cache (cursorPosition cursor) Backward 1
-          
-          if null prevLines
-            then return vs  -- Shouldn't happen, but be safe
-            else do
-              -- Get the line with its number (swap tuple order: API returns (Text, Integer))
-              let (text, lineNum) = head prevLines
-                  newLine = (lineNum, text)
-              
-              -- Shift viewport up
-              let newViewport = shiftViewportUp newLine viewport (vsViewportSize vs)
-              
-              -- Update cursor - use lpLineNum from newPosition
-              let newCursor = cursor 
-                    { cursorPosition = newPosition
-                    }
-              
-              return vs { vsViewport = newViewport, vsCursor = newCursor }
-
-pageDown :: ViewState -> IO ViewState
-pageDown vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
-      viewport = vsViewport vs
-      pageSize = vsViewportSize vs
-  
-  if null viewport
-    then return vs
-    else do
-      -- Read a full page forward from current position
-      (nextPage, newPosition) <- getLinesFrom cache (cursorPosition cursor) Forward pageSize
-      
-      if null nextPage
-        then return vs  -- At EOF
-        else do
-          -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-          let swappedPage = [(lineNum, text) | (text, lineNum) <- nextPage]
-          
-          -- Update cursor and viewport - use lpLineNum from newPosition
-          let newCursor = cursor 
-                { cursorPosition = newPosition
-                }
-          
-          return vs { vsViewport = swappedPage, vsCursor = newCursor }
-
-pageUp :: ViewState -> IO ViewState
-pageUp vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
-      viewport = vsViewport vs
-      pageSize = vsViewportSize vs
-  
-  if null viewport
-    then return vs
-    else do
-      -- Get the line number of the first line in viewport
-      let (firstLineNum, _) = head viewport
-      
-      -- Can't scroll up if we're at the beginning
-      if firstLineNum <= 1
-        then return vs
-        else do
-          -- Read a full page backward from current position
-          (prevPage, newPosition) <- getLinesFrom cache (cursorPosition cursor) Backward pageSize
-          
-          if null prevPage
-            then return vs
-            else do
-              -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-              let swappedPage = [(lineNum, text) | (text, lineNum) <- prevPage]
-              
-              -- Update cursor and viewport - use lpLineNum from newPosition
-              let newCursor = cursor 
-                    { cursorPosition = newPosition
-                    }
-              
-              return vs { vsViewport = swappedPage, vsCursor = newCursor }
-
--- Jump to start of file
-jumpToStart :: ViewState -> IO ViewState
-jumpToStart vs = do
-  let cache = vsCache vs
-      pageSize = vsViewportSize vs
-  
-  -- Use new API: get lines from start
-  (linesWithNumbers, newPosition) <- getLinesFromStart cache pageSize
-  
-  if null linesWithNumbers
-    then return vs  -- Empty file
-    else do
-      -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-      let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
-      
-      -- Create cursor at file start - use lpOrigin from newPosition to set cursorOrigin
-      let newCursor = ViewCursor
-            { cursorPosition = newPosition
-            , cursorOrigin = lpOrigin newPosition
-            }
-      
-      return vs { vsViewport = swappedLines
-                , vsCursor = newCursor
-                }
-
--- Jump to end of file
-jumpToEnd :: ViewState -> IO ViewState
-jumpToEnd vs = do
-  let cache = vsCache vs
-      pageSize = vsViewportSize vs
-  
-  -- Use new API: get lines from end
-  (linesWithNumbers, newPosition) <- getLinesFromEnd cache pageSize
-  
-  if null linesWithNumbers
-    then return vs  -- Empty file
-    else do
-      -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-      let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
-      
-      -- Create cursor at file end - use lpOrigin from newPosition
-      let newCursor = ViewCursor
-            { cursorPosition = newPosition
-            , cursorOrigin = lpOrigin newPosition
-            }
-      
-      return vs { vsViewport = swappedLines
-                , vsCursor = newCursor
-                }
 
 -- Brick app definition
 app :: App ViewState e Name
@@ -319,36 +142,11 @@ main = do
 
 runViewer :: FilePath -> IO ()
 runViewer filepath = do
-  -- Open LineCache
-  cache <- openLineCache filepath
+  -- Initialize viewer using Operations module
+  initialState <- Ops.initializeViewer filepath 25
   
-  -- Read first 25 lines with line numbers using new API
-  (initialLines, initialPosition) <- getLinesFromStart cache 25
+  -- Run brick app
+  _ <- defaultMain app initialState
   
-  -- Check for empty file
-  if null initialLines
-    then do
-      putStrLn "Error: File is empty"
-      closeLineCache cache
-    else do
-      -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-      let swappedLines = [(lineNum, text) | (text, lineNum) <- initialLines]
-      
-      -- Create initial cursor and viewport - use lpOrigin from initialPosition
-      let cursor = ViewCursor 
-            { cursorPosition = initialPosition
-            , cursorOrigin = lpOrigin initialPosition
-            }
-          initialState = ViewState
-            { vsCache = cache
-            , vsCursor = cursor
-            , vsViewport = swappedLines
-            , vsViewportSize = 25
-            , vsFilePath = filepath
-            }
-      
-      -- Run brick app
-      _ <- defaultMain app initialState
-      
-      -- Clean up
-      closeLineCache cache
+  -- Clean up
+  closeLineCache (vsCache initialState)
