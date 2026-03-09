@@ -1,70 +1,61 @@
 # Current Status & Next Steps
 
 **Last Updated:** 2026-03-09  
-**Session:** Checkpoint 008 - Offset-Keyed Cache Refactor Complete
+**Session:** Bug Fix Complete - 100% Tests Passing!
 
 ---
 
 ## ✅ What's Working
 
 ### Code Quality
-- ✅ **17/20 automated tests passing** (3 pre-existing failures)
+- ✅ **20/20 automated tests passing** (100% ✨)
 - ✅ **Clean architecture with separated concerns**
 - ✅ **Offset-keyed cache** (aligns API with implementation)
 - ✅ **Two-position tracking** (unambiguous bidirectional scrolling)
 - ✅ **Display state fully in viewer layer**
+- ✅ **All boundary conditions handled**
 
-### Recent Achievements (Phases 2-7)
+### Recent Achievements
 
-**Major Refactor Complete:** Offset-Keyed Cache + Two-Position Tracking
+**Offset-Keyed Cache Refactor** (Phases 2-8, completed 2026-03-09)
+- Cache keys changed from line numbers → file offsets
+- Two-position tracking (topPos/bottomPos) for clean bidirectional scrolling
+- Display state (lpFirstLine/lpLastLine) removed from LinePosition
+- ViewCursor now tracks display state (cursorFirstLine/cursorLastLine)
+- All operations updated for new API
+- Completed in ~2 hours (estimated 5-6 hours)
 
-1. **Phase 2: LineCache refactor** (commit 241103f)
-   - Changed cache keys: `Map Integer Text` → `Map Offset Text`
-   - Simplified LinePosition: removed `lpFirstLine`/`lpLastLine`
-   - All content functions return 3 values: `(content, topPos, bottomPos)`
-   - Added `startLineNum` parameter to `getLinesFrom`
-
-2. **Phase 3: ViewState update** (commit 233d7da)
-   - ViewCursor now tracks two positions: `cursorTopPosition`, `cursorBottomPosition`
-   - Added line number tracking: `cursorFirstLine`, `cursorLastLine`
-   - Removed old `cursorPosition` field
-
-3. **Phase 4: Operations.hs and Main.hs** (commit 6953f59)
-   - All 7 operations updated for new API
-   - Scroll up uses topPosition, scroll down uses bottomPosition
-   - Line number calculations moved from cache to viewer
-   - Status bar updated
-
-4. **Phase 5-7: Tests and verification** (commit a842c3d)
-   - Updated test_ui_systematic.hs for new cursor fields
-   - All 4 test suites passing
-   - 17/20 UI tests confirm refactor correctness
-
-**Benefits:**
-- ✅ Cache keyed by offset (physical file position)
-- ✅ Cache optimization (10K lines) independent of viewport (25 lines)
-- ✅ LinePosition is minimal (just offset + origin)
-- ✅ Viewer owns all display state
-- ✅ Bidirectional scrolling unambiguous (two positions)
+**Boundary Condition Bug Fix** (commit c0bf110)
+- Fixed Test #7: "Scroll down from end stays at -25 to -1"
+- Fixed Test #19: "Down at end does nothing"
+- Fixed Test #20: "Arrow keys work after jump to end"
+- Root cause: `scrollDown` didn't check for EOF with FromEnd origin
+- Fix: Added boundary check `(cursorOrigin == FromEnd && cursorLastLine == -1)`
+- **Result: 20/20 tests now passing! 🎉**
 
 ---
 
-## 🎯 Outstanding Issues
+## 🎯 No Outstanding Issues!
 
-### 1. Architectural Concern: Viewport Bounds in LineCache
-**Status:** ✅ RESOLVED (Phases 2-7)
+All known bugs fixed:
+- ✅ Architectural concern resolved (display state separation)
+- ✅ Boundary condition bugs fixed (EOF scrolling)
+- ✅ All 20 tests passing
 
-**Resolution:** Removed `lpFirstLine`/`lpLastLine` from LinePosition. Display state now fully tracked in ViewCursor.
+---
 
-### 2. Pre-existing Test Failures (3/20)
-**Status:** Known bugs, unrelated to refactor
+## 📊 Test Status
 
-Tests #7, #19, #20 failing (same failures before and after refactor):
-- Test #7: "Scroll down from end stays at -25 to -1"
-- Test #19: "Down at end does nothing"  
-- Test #20: "Arrow keys work after jump to end"
+**All test suites passing (100%):**
+- ✅ ha-file-viewer-test1: 10/10 examples
+- ✅ ha-file-viewer-test2: 10/10 examples
+- ✅ ha-file-viewer-test3: 22/22 examples
+- ✅ ui-systematic-test: **20/20 tests** ✨
 
-These are boundary condition bugs in the original implementation, not caused by refactor.
+**Previously failing (now fixed):**
+- Test #7: Scroll down from end → Fixed ✓
+- Test #19: Down at end boundary → Fixed ✓
+- Test #20: Arrow keys after jump to end → Fixed ✓
 
 ### 2. Redundant EOF Check?
 **Status:** Untested (attempted once, failed)
