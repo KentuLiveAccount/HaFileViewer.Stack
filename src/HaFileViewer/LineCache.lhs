@@ -312,7 +312,8 @@ along with content, and an opaque position marker for resuming reads.
 >       bottomOffset = if null linesWithOffsets 
 >                      then 0 
 >                      else let (lastText, lastOff) = last linesWithOffsets
->                           in lastOff + fromIntegral (T.length lastText) + 1
+>                           -- Use byte length, not character length!
+>                           in lastOff + fromIntegral (BS.length $ TE.encodeUtf8 lastText) + 1
 >       topPos = LinePosition topOffset FromStart
 >       bottomPos = LinePosition bottomOffset FromStart
 >   
@@ -360,7 +361,8 @@ along with content, and an opaque position marker for resuming reads.
 >       bottomOffset = if null linesWithOffsets
 >                      then fileSize
 >                      else let (lastText, lastOff) = last linesWithOffsets
->                           in lastOff + fromIntegral (T.length lastText) + 1
+>                           -- Use byte length, not character length!
+>                           in lastOff + fromIntegral (BS.length $ TE.encodeUtf8 lastText) + 1
 >       topPos = LinePosition topOffset FromEnd
 >       bottomPos = LinePosition bottomOffset FromEnd
 >   
@@ -424,7 +426,8 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> if null adjustedLines 
 >                     then startOffset
 >                     else let (lastText, lastOff) = last adjustedLines
->                          in lastOff + fromIntegral (T.length lastText) + 1
+>                          -- Use byte length, not character length!
+>                          in lastOff + fromIntegral (BS.length $ TE.encodeUtf8 lastText) + 1
 >         Backward -> startOffset  -- Bottom stays when scrolling up
 >       topPos = LinePosition topOffset origin
 >       bottomPos = LinePosition bottomOffset origin
