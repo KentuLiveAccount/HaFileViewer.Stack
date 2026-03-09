@@ -36,10 +36,10 @@ drawUI vs = [viewport]
     cursor = vsCursor vs
     positionInfo = ""  -- Will be handled by line numbers
     
-    -- Calculate line info using viewport bounds
+    -- Calculate line info using cursor line number bounds
     lineInfo = if cursorOrigin cursor == FromStart
-               then "Lines: " ++ show (lpFirstLine (cursorPosition cursor)) ++ "-" ++ show (lpLastLine (cursorPosition cursor))
-               else "Lines: " ++ show (lpFirstLine (cursorPosition cursor)) ++ " to " ++ show (lpLastLine (cursorPosition cursor))
+               then "Lines: " ++ show (cursorFirstLine cursor) ++ "-" ++ show (cursorLastLine cursor)
+               else "Lines: " ++ show (cursorFirstLine cursor) ++ " to " ++ show (cursorLastLine cursor)
     
     -- Status bar
     statusBar = hBox

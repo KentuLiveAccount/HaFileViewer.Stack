@@ -21,7 +21,7 @@ import HaFileViewer.BidirectionalScanner (Direction(..))
 initializeViewer :: FilePath -> Int -> IO ViewState
 initializeViewer filepath viewportSize = do
   cache <- openLineCache filepath
-  (initialLines, initialPosition) <- getLinesFromStart cache viewportSize
+  (initialLines, topPos, bottomPos) <- getLinesFromStart cache viewportSize
   
   if null initialLines
     then error "Cannot initialize viewer with empty file"
@@ -29,10 +29,17 @@ initializeViewer filepath viewportSize = do
       -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
       let swappedLines = [(lineNum, text) | (text, lineNum) <- initialLines]
       
-      -- Create initial cursor and viewport
+      -- Calculate line number bounds
+      let firstLineNum = 1
+          lastLineNum = fromIntegral (length initialLines)
+      
+      -- Create initial cursor with two positions
       let cursor = ViewCursor 
-            { cursorPosition = initialPosition
-            , cursorOrigin = lpOrigin initialPosition
+            { cursorTopPosition = topPos
+            , cursorBottomPosition = bottomPos
+            , cursorFirstLine = firstLineNum
+            , cursorLastLine = lastLineNum
+            , cursorOrigin = lpOrigin topPos
             }
           
           initialState = ViewState
@@ -56,8 +63,14 @@ scrollDown vs = do
   if null viewport
     then return vs
     else do
-      -- Use the cursor position to read 1 more line forward
-      (moreLines, newPosition) <- getLinesFrom cache (cursorPosition cursor) Forward 1
+      -- Use bottom position to read 1 more line forward
+      -- startLineNum is the next line after current viewport
+      let startLineNum = cursorLastLine cursor + 1
+      (moreLines, topPos, bottomPos) <- getLinesFrom cache 
+                                          (cursorBottomPosition cursor) 
+                                          Forward 
+                                          1 
+                                          startLineNum
       
       if null moreLines
         then return vs  -- At EOF, don't change state
@@ -69,9 +82,12 @@ scrollDown vs = do
           -- Shift viewport down
           let newViewport = shiftViewportDown viewport newLine (vsViewportSize vs)
           
-          -- Update cursor
+          -- Update cursor with new positions and line numbers
           let newCursor = cursor 
-                { cursorPosition = newPosition
+                { cursorTopPosition = topPos
+                , cursorBottomPosition = bottomPos
+                , cursorFirstLine = cursorFirstLine cursor + 1
+                , cursorLastLine = cursorLastLine cursor + 1
                 }
           
           return vs { vsViewport = newViewport, vsCursor = newCursor }
@@ -95,8 +111,14 @@ scrollUp vs = do
       if cursorOrigin cursor == FromStart && firstLineNum <= 1
         then return vs
         else do
-          -- Use cursor position to read 1 line backward
-          (prevLines, newPosition) <- getLinesFrom cache (cursorPosition cursor) Backward 1
+          -- Use top position to read 1 line backward
+          -- startLineNum is the previous line before current viewport
+          let startLineNum = cursorFirstLine cursor - 1
+          (prevLines, topPos, bottomPos) <- getLinesFrom cache 
+                                              (cursorTopPosition cursor) 
+                                              Backward 
+                                              1 
+                                              startLineNum
           
           if null prevLines
             then return vs  -- Shouldn't happen, but be safe
@@ -108,9 +130,12 @@ scrollUp vs = do
               -- Shift viewport up
               let newViewport = shiftViewportUp newLine viewport (vsViewportSize vs)
               
-              -- Update cursor
+              -- Update cursor with new positions and line numbers
               let newCursor = cursor
-                    { cursorPosition = newPosition
+                    { cursorTopPosition = topPos
+                    , cursorBottomPosition = bottomPos
+                    , cursorFirstLine = cursorFirstLine cursor - 1
+                    , cursorLastLine = cursorLastLine cursor - 1
                     }
               
               return vs { vsViewport = newViewport, vsCursor = newCursor }
@@ -126,18 +151,29 @@ pageDown vs = do
   if null viewport
     then return vs
     else do
-      -- Read a full page forward from current position
-      (nextPage, newPosition) <- getLinesFrom cache (cursorPosition cursor) Forward pageSize
+      -- Read a full page forward from bottom position
+      -- startLineNum is the next line after current viewport
+      let startLineNum = cursorLastLine cursor + 1
+      (nextPage, topPos, bottomPos) <- getLinesFrom cache 
+                                        (cursorBottomPosition cursor) 
+                                        Forward 
+                                        pageSize 
+                                        startLineNum
       
       if null nextPage
         then return vs  -- At EOF
         else do
           -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
           let swappedPage = [(lineNum, text) | (text, lineNum) <- nextPage]
+              newFirstLine = cursorLastLine cursor + 1
+              newLastLine = cursorLastLine cursor + fromIntegral (length nextPage)
           
           -- Update cursor and viewport
           let newCursor = cursor 
-                { cursorPosition = newPosition
+                { cursorTopPosition = topPos
+                , cursorBottomPosition = bottomPos
+                , cursorFirstLine = newFirstLine
+                , cursorLastLine = newLastLine
                 }
           
           return vs { vsViewport = swappedPage, vsCursor = newCursor }
@@ -161,18 +197,29 @@ pageUp vs = do
       if cursorOrigin cursor == FromStart && firstLineNum <= 1
         then return vs
         else do
-          -- Read a full page backward
-          (prevPage, newPosition) <- getLinesFrom cache (cursorPosition cursor) Backward pageSize
+          -- Read a full page backward from top position
+          -- startLineNum is the previous line before current viewport
+          let startLineNum = cursorFirstLine cursor - 1
+          (prevPage, topPos, bottomPos) <- getLinesFrom cache 
+                                            (cursorTopPosition cursor) 
+                                            Backward 
+                                            pageSize 
+                                            startLineNum
           
           if null prevPage
             then return vs
             else do
               -- Swap tuple order
               let swappedPage = [(lineNum, text) | (text, lineNum) <- prevPage]
+                  newFirstLine = cursorFirstLine cursor - fromIntegral (length prevPage)
+                  newLastLine = cursorFirstLine cursor - 1
               
               -- Update cursor and viewport
               let newCursor = cursor
-                    { cursorPosition = newPosition
+                    { cursorTopPosition = topPos
+                    , cursorBottomPosition = bottomPos
+                    , cursorFirstLine = newFirstLine
+                    , cursorLastLine = newLastLine
                     }
               
               return vs { vsViewport = swappedPage, vsCursor = newCursor }
@@ -183,19 +230,24 @@ jumpToStart vs = do
   let cache = vsCache vs
       pageSize = vsViewportSize vs
   
-  -- Use new API: get lines from start
-  (linesWithNumbers, newPosition) <- getLinesFromStart cache pageSize
+  -- Use new API: get lines from start (returns 3 values)
+  (linesWithNumbers, topPos, bottomPos) <- getLinesFromStart cache pageSize
   
   if null linesWithNumbers
     then return vs  -- Empty file
     else do
       -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
       let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
+          firstLineNum = 1
+          lastLineNum = fromIntegral (length linesWithNumbers)
       
-      -- Create cursor at file start
+      -- Create cursor at file start with two positions
       let newCursor = ViewCursor
-            { cursorPosition = newPosition
-            , cursorOrigin = lpOrigin newPosition
+            { cursorTopPosition = topPos
+            , cursorBottomPosition = bottomPos
+            , cursorFirstLine = firstLineNum
+            , cursorLastLine = lastLineNum
+            , cursorOrigin = lpOrigin topPos
             }
       
       return vs { vsViewport = swappedLines
@@ -208,19 +260,24 @@ jumpToEnd vs = do
   let cache = vsCache vs
       pageSize = vsViewportSize vs
   
-  -- Use new API: get lines from end
-  (linesWithNumbers, newPosition) <- getLinesFromEnd cache pageSize
+  -- Use new API: get lines from end (returns 3 values)
+  (linesWithNumbers, topPos, bottomPos) <- getLinesFromEnd cache pageSize
   
   if null linesWithNumbers
     then return vs  -- Empty file
     else do
       -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
       let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
+          firstLineNum = negate (fromIntegral (length linesWithNumbers))
+          lastLineNum = -1
       
-      -- Create cursor at file end
+      -- Create cursor at file end with two positions
       let newCursor = ViewCursor
-            { cursorPosition = newPosition
-            , cursorOrigin = lpOrigin newPosition
+            { cursorTopPosition = topPos
+            , cursorBottomPosition = bottomPos
+            , cursorFirstLine = firstLineNum
+            , cursorLastLine = lastLineNum
+            , cursorOrigin = lpOrigin topPos
             }
       
       return vs { vsViewport = swappedLines
