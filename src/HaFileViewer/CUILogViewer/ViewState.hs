@@ -12,10 +12,13 @@ module HaFileViewer.CUILogViewer.ViewState
 import qualified Data.Text as T
 import HaFileViewer.LineCache (LineCache, LinePosition, ScanOrigin(..))
 
--- | Cursor tracking position in file
+-- | Cursor tracking position in file with two-position tracking for bidirectional scrolling
 data ViewCursor = ViewCursor
-  { cursorPosition :: LinePosition -- ^ Opaque position marker in file
-  , cursorOrigin   :: ScanOrigin   -- ^ Scan direction (forward/backward)
+  { cursorTopPosition    :: LinePosition -- ^ Position at top of viewport (for scrolling up)
+  , cursorBottomPosition :: LinePosition -- ^ Position at bottom of viewport (for scrolling down)
+  , cursorFirstLine      :: Integer      -- ^ First line number in viewport (e.g., -25)
+  , cursorLastLine       :: Integer      -- ^ Last line number in viewport (e.g., -1)
+  , cursorOrigin         :: ScanOrigin   -- ^ Scan direction (forward/backward)
   } deriving (Show, Eq)
 
 -- | Line with its display line number
