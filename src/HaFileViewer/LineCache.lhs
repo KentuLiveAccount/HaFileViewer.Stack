@@ -426,7 +426,7 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> if null adjustedLines 
 >                     then startOffset
 >                     else let (lastText, lastOff) = last adjustedLines
->                          -- Use byte length, not character length!
+>                          -- Try +1 to see if scanner already accounts for CR
 >                          in lastOff + fromIntegral (BS.length $ TE.encodeUtf8 lastText) + 1
 >         Backward -> startOffset  -- Bottom stays when scrolling up
 >       topPos = LinePosition topOffset origin

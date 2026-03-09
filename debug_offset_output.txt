@@ -1,0 +1,43 @@
+=== Incremental Line Reading Test with OFFSET TRACKING ===
+
+Created test file with 50 non-empty lines (CR-LF endings)
+
+Step 1: Read initial 25 lines
+  Got 25 lines
+  Initial read complete
+
+  PASS: No empty lines in initial read
+
+Step 2: Incrementally read lines 26-50 (one at a time) WITH OFFSET TRACKING
+
+Format: Line NN | Status | Chars in line
+
+Line 26  | Input Pos: 26 | Output Pos: 26 | Lines read: 1 | FAIL: EMPTY
+Line 27  | Input Pos: 27 | Output Pos: 27 | Lines read: 1 | OK (44 chars)
+Line 28  | Input Pos: 28 | Output Pos: 28 | Lines read: 1 | OK (45 chars)
+Line 29  | Input Pos: 29 | Output Pos: 29 | Lines read: 1 | OK (45 chars)
+Line 30  | Input Pos: 30 | Output Pos: 30 | Lines read: 1 | OK (45 chars)
+Line 31  | Input Pos: 31 | Output Pos: 31 | Lines read: 1 | OK (45 chars)
+Line 32  | Input Pos: 32 | Output Pos: 32 | Lines read: 1 | OK (45 chars)
+Line 33  | Input Pos: 33 | Output Pos: 33 | Lines read: 1 | OK (45 chars)
+Line 34  | Input Pos: 34 | Output Pos: 34 | Lines read: 1 | OK (45 chars)
+Line 35  | Input Pos: 35 | Output Pos: 35 | Lines read: 1 | OK (45 chars)
+Line 36  | Input Pos: 36 | Output Pos: 36 | Lines read: 1 | OK (45 chars)
+Line 37  | Input Pos: 37 | Output Pos: 37 | Lines read: 1 | OK (45 chars)
+Line 38  | Input Pos: 38 | Output Pos: 38 | Lines read: 1 | OK (45 chars)
+Line 39  | Input Pos: 39 | Output Pos: 39 | Lines read: 1 | OK (45 chars)
+Line 40  | Input Pos: 40 | Output Pos: 40 | Lines read: 1 | OK (45 chars)
+Line 41  | Input Pos: 41 | Output Pos: 41 | Lines read: 1 | OK (45 chars)
+Line 42  | Input Pos: 42 | Output Pos: 42 | Lines read: 1 | OK (45 chars)
+Line 43  | Input Pos: 43 | Output Pos: 43 | Lines read: 1 | OK (45 chars)
+Line 44  | Input Pos: 44 | Output Pos: 44 | Lines read: 1 | OK (45 chars)
+Line 45  | Input Pos: 45 | Output Pos: 45 | Lines read: 1 | OK (45 chars)
+Line 46  | Input Pos: 46 | Output Pos: 46 | Lines read: 1 | OK (45 chars)
+Line 47  | Input Pos: 47 | Output Pos: 47 | Lines read: 1 | OK (45 chars)
+Line 48  | Input Pos: 48 | Output Pos: 48 | Lines read: 1 | OK (45 chars)
+Line 49  | Input Pos: 49 | Output Pos: 49 | Lines read: 1 | OK (45 chars)
+Line 50  | Input Pos: 50 | Output Pos: 50 | Lines read: 1 | OK (45 chars)
+
+=== Results ===
+FAILURE: Found 1 problems:
+  - Line 26: Empty
