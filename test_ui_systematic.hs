@@ -88,14 +88,14 @@ testInitialState = do
 testSingleScrollDown :: IO Bool
 testSingleScrollDown = do
   vs <- initializeViewer
-  let initialFirst = lpFirstLine (cursorPosition $ vsCursor vs)
-      initialLast = lpLastLine (cursorPosition $ vsCursor vs)
+  let initialFirst = cursorFirstLine $ vsCursor vs
+      initialLast = cursorLastLine $ vsCursor vs
   putStrLn $ "  Initial viewport: " ++ show initialFirst ++ "-" ++ show initialLast
   vs' <- simulateScrollDown vs
   let (first, last, count) = getViewportInfo vs'
       lineNums = map fst (vsViewport vs')
-      newFirst = lpFirstLine (cursorPosition $ vsCursor vs')
-      newLast = lpLastLine (cursorPosition $ vsCursor vs')
+      newFirst = cursorFirstLine $ vsCursor vs'
+      newLast = cursorLastLine $ vsCursor vs'
   -- Debug output
   putStrLn $ "  DEBUG: first=" ++ show first ++ " last=" ++ show last ++ " count=" ++ show count
   putStrLn $ "  New viewport bounds: " ++ show newFirst ++ "-" ++ show newLast
@@ -247,11 +247,11 @@ testLineNumConsistency = do
       cursor = vsCursor vs
       firstInViewport = if null viewport then 0 else fst (head viewport)
       lastInViewport = if null viewport then 0 else fst (last viewport)
-      lpFirst = lpFirstLine (cursorPosition cursor)
-      lpLast = lpLastLine (cursorPosition cursor)
+      cursorFirst = cursorFirstLine cursor
+      cursorLast = cursorLastLine cursor
   closeLineCache (vsCache vs)
-  -- Viewport bounds should match lpFirstLine/lpLastLine
-  return $ firstInViewport == lpFirst && lastInViewport == lpLast
+  -- Viewport bounds should match cursor's tracked line numbers
+  return $ firstInViewport == cursorFirst && lastInViewport == cursorLast
 
 -- Test 13: Origin consistency after scrolling
 testOriginConsistency :: IO Bool
@@ -394,7 +394,7 @@ main = bracket
     runTest "09. Multiple scrolls down (5x)" testMultipleScrollsDown
     runTest "10. Multiple scrolls reversible (5 down + 5 up)" testMultipleScrollsReverse
     runTest "11. No duplicate lines in viewport" testNoDuplicates
-    runTest "12. Viewport bounds match lpFirstLine/lpLastLine" testLineNumConsistency
+    runTest "12. Viewport bounds match cursor tracking" testLineNumConsistency
     runTest "13. Origin stays constant during scroll" testOriginConsistency
     runTest "14. Origin changes on jump commands" testOriginChangeOnJump
     
