@@ -32,8 +32,6 @@ Performance Characteristics:
 >   , CacheStats(..)
 >   , LinePosition  -- Opaque type, constructor not exported
 >   , ScanOrigin(..)  -- Export with constructors for pattern matching
->   , lpFirstLine  -- Export accessor for first line in viewport
->   , lpLastLine   -- Export accessor for last line in viewport
 >   , lpOrigin   -- Export accessor for origin
 >     
 >     -- * Creation and lifecycle
@@ -77,7 +75,7 @@ Performance Characteristics:
 > import System.IO (hSeek, SeekMode(..))
 > import System.Directory (getModificationTime, getFileSize)
 > import Control.Exception (bracket)
-> import Control.Monad (when)
+> import Control.Monad (when, forM_)
 > 
 > import HaFileViewer.BidirectionalScanner 
 >   ( scanLines, scanLinesWithOffsets, Direction(..) )
@@ -120,9 +118,9 @@ Data Types
 >   , lcSparseIdx   :: IORef SI.SparseIndex
 >   , lcIndexStep   :: Int
 >     
->     -- Content cache (primary storage)
->   , lcContent     :: IORef (Map.Map Integer T.Text)
->   , lcLRUOrder    :: IORef [Integer]  -- Most recent last
+>     -- Content cache (primary storage) - keyed by file offset
+>   , lcContent     :: IORef (Map.Map Offset T.Text)
+>   , lcLRUOrder    :: IORef [Offset]  -- Most recent last
 >   , lcMaxContent  :: Int
 >     
 >     -- Total lines (cached once known)
@@ -141,15 +139,14 @@ Data Types
 >   , csTotalScanned  :: Integer -- ^ Total lines scanned
 >   } deriving (Show, Eq)
 
-> -- | Opaque position marker for resuming line reads
-> -- Contains byte offset, viewport bounds (first and last line numbers), and origin
-> -- The viewport bounds define which lines are currently visible
-> -- This allows correct calculation of line numbers for both forward and backward scrolling
+-- | Position within a file for line-oriented reading
+-- 
+-- Contains only the file offset and scan origin - no display state.
+-- The cache layer is transparent file I/O; the viewer layer tracks display state.
+
 > data LinePosition = LinePosition 
->   { lpOffset      :: Offset
->   , lpFirstLine   :: Integer  -- ^ First line number in current viewport
->   , lpLastLine    :: Integer  -- ^ Last line number in current viewport
->   , lpOrigin      :: ScanOrigin
+>   { lpOffset :: Offset        -- ^ Byte offset in file
+>   , lpOrigin :: ScanOrigin    -- ^ Scan direction/origin
 >   } deriving (Show, Eq)
 
 Creation and Lifecycle
@@ -274,8 +271,10 @@ These functions provide a bidirectional line scanning API that returns line numb
 along with content, and an opaque position marker for resuming reads.
 
 > -- | Read N lines from start of file (forward)
-> -- Returns lines with positive line numbers [1, 2, 3, ...] and position to continue
-> getLinesFromStart :: LineCache -> Int -> IO ([(T.Text, Integer)], LinePosition)
+> -- Returns lines with positive line numbers [1, 2, 3, ...] and TWO positions
+> -- topPosition: for scrolling up (backward), bottomPosition: for scrolling down (forward)
+> getLinesFromStart :: LineCache -> Int 
+>                   -> IO ([(T.Text, Integer)], LinePosition, LinePosition)
 > getLinesFromStart lc count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
@@ -292,21 +291,37 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Use scanLinesWithOffsets to get lines with their byte offsets
 >   linesWithOffsets <- scanLinesWithOffsets Forward (lcFileSize lc) readFn count
 >   
->   -- Generate line numbers starting from 1 (not 0-based)
+>   -- Cache lines by offset
+>   forM_ linesWithOffsets $ \(text, offset) ->
+>     insertWithEviction lc offset text
+>   
+>   -- Generate line numbers starting from 1
 >   let lineNumbers = calculateForwardLineNumbers 1 count
 >       result = zip (map fst linesWithOffsets) lineNumbers
 >   
->   -- Calculate new position with viewport bounds
->   let newOffset = extractNewPosition linesWithOffsets Forward
->       newFirstLine = 1  -- First visible line in viewport
->       newLastLine = fromIntegral count  -- Last visible line in viewport
->       newPosition = LinePosition newOffset newFirstLine newLastLine FromStart
+>   -- Update sparse index with line number → offset mappings
+>   let indexStep = lcIndexStep lc
+>       indexEntries = [(lineNum, offset) | ((text, offset), lineNum) <- zip linesWithOffsets lineNumbers,
+>                                            lineNum `mod` fromIntegral indexStep == 0]
+>   sparseIdx <- readIORef (lcSparseIdx lc)
+>   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
+>   writeIORef (lcSparseIdx lc) sparseIdx'
 >   
->   return (result, newPosition)
+>   -- Calculate TWO positions
+>   let topOffset = if null linesWithOffsets then 0 else snd (head linesWithOffsets)
+>       bottomOffset = if null linesWithOffsets 
+>                      then 0 
+>                      else let (lastText, lastOff) = last linesWithOffsets
+>                           in lastOff + fromIntegral (T.length lastText) + 1
+>       topPos = LinePosition topOffset FromStart
+>       bottomPos = LinePosition bottomOffset FromStart
+>   
+>   return (result, topPos, bottomPos)
 
 > -- | Read N lines from end of file (backward)
-> -- Returns lines with negative line numbers [-N, -N+1, ..., -1] and position to continue
-> getLinesFromEnd :: LineCache -> Int -> IO ([(T.Text, Integer)], LinePosition)
+> -- Returns lines with negative line numbers [-N, -N+1, ..., -1] and TWO positions
+> getLinesFromEnd :: LineCache -> Int 
+>                 -> IO ([(T.Text, Integer)], LinePosition, LinePosition)
 > getLinesFromEnd lc count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
@@ -323,82 +338,98 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Use scanLinesWithOffsets in backward mode
 >   linesWithOffsets <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
 >   
+>   -- Cache lines by offset
+>   forM_ linesWithOffsets $ \(text, offset) ->
+>     insertWithEviction lc offset text
+>   
 >   -- Generate negative line numbers [-count, -count+1, ..., -1]
 >   let lineNumbers = calculateBackwardLineNumbers count
 >       result = zip (map fst linesWithOffsets) lineNumbers
 >   
->   -- Calculate new position with viewport bounds (negative line numbers)
->   let newOffset = extractNewPosition linesWithOffsets Backward
->       newFirstLine = negate (fromIntegral count)  -- First visible line (most negative)
->       newLastLine = -1  -- Last visible line is always -1 (last line of file)
->       newPosition = LinePosition newOffset newFirstLine newLastLine FromEnd
+>   -- Update sparse index with line number → offset mappings
+>   let indexStep = lcIndexStep lc
+>       indexEntries = [(lineNum, offset) | ((text, offset), lineNum) <- zip linesWithOffsets lineNumbers,
+>                                            lineNum `mod` fromIntegral indexStep == 0]
+>   sparseIdx <- readIORef (lcSparseIdx lc)
+>   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
+>   writeIORef (lcSparseIdx lc) sparseIdx'
 >   
->   return (result, newPosition)
+>   -- Calculate TWO positions
+>   let fileSize = lcFileSize lc
+>       topOffset = if null linesWithOffsets then fileSize else snd (head linesWithOffsets)
+>       bottomOffset = if null linesWithOffsets
+>                      then fileSize
+>                      else let (lastText, lastOff) = last linesWithOffsets
+>                           in lastOff + fromIntegral (T.length lastText) + 1
+>       topPos = LinePosition topOffset FromEnd
+>       bottomPos = LinePosition bottomOffset FromEnd
+>   
+>   return (result, topPos, bottomPos)
 
 > -- | Read N lines from a given position in specified direction
-> -- Returns lines with appropriate line numbers and new position to continue
-> -- The position tracks viewport bounds (first and last visible lines)
-> getLinesFrom :: LineCache -> LinePosition -> Direction -> Int 
->              -> IO ([(T.Text, Integer)], LinePosition)
-> getLinesFrom lc (LinePosition startOffset firstLine lastLine origin) dir count = do
->   -- Boundary check: prevent scrolling past EOF
->   -- When at end (FromEnd origin, lastLine == -1) and trying to scroll forward, stay at end
->   if (origin == FromEnd && lastLine == -1 && dir == Forward)
->     then do
->       let pos = LinePosition startOffset firstLine lastLine origin
->       return ([], pos)
->     else do
->       -- Check if file modified
->       modified <- checkModified lc
->       when modified $ invalidateCache lc
->       
->       -- Open file handle
->       h <- ensureHandle lc
+> -- The startLineNum parameter tells the cache what line number corresponds to the start position
+> -- Returns lines with appropriate line numbers and TWO positions to continue
+> getLinesFrom :: LineCache -> LinePosition -> Direction -> Int -> Integer
+>              -> IO ([(T.Text, Integer)], LinePosition, LinePosition)
+> getLinesFrom lc (LinePosition startOffset origin) dir count startLineNum = do
+>   -- Check if file modified
+>   modified <- checkModified lc
+>   when modified $ invalidateCache lc
 >   
->       -- Create read function starting from given offset
->       let readFn offset size = do
->             let absOffset = case dir of
->                   Forward  -> startOffset + offset
->                   Backward -> offset  -- Backward offsets are already absolute
->             hSeek h AbsoluteSeek (fromInteger absOffset)
->             BS.hGet h (fromInteger size)
->           remainingSize = case dir of
->             Forward  -> lcFileSize lc - startOffset
->             Backward -> startOffset  -- For backward, we read from 0 to startOffset
->       
->       -- Scan in the specified direction
->       linesWithOffsets <- scanLinesWithOffsets dir remainingSize readFn count
->       
->       -- Adjust offsets to be absolute (scanLinesWithOffsets returns relative offsets for Forward)
->       let adjustedLines = case dir of
->             Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
->             Backward -> linesWithOffsets  -- Backward offsets are already absolute
->       
->       -- Calculate line numbers based on viewport bounds and scroll direction
->       -- firstLine and lastLine define the current viewport span
->       -- We're reading new lines that will shift the viewport
->       let startLineNum = case (origin, dir) of
->             (FromStart, Forward)  -> lastLine + 1  -- Read after current viewport
->             (FromStart, Backward) -> firstLine - fromIntegral count  -- Read before current viewport
->             (FromEnd, Forward)    -> lastLine + 1  -- Read toward end (less negative or beyond -1)
->             (FromEnd, Backward)   -> firstLine - fromIntegral count  -- Read toward start (more negative)
->
->           lineNumbers = case origin of
->             FromStart -> calculateForwardLineNumbers startLineNum count  -- Always positive
->             FromEnd   -> [startLineNum .. (startLineNum + fromIntegral count - 1)]  -- Consecutive negatives
->           
->           result = zip (map fst adjustedLines) lineNumbers
->       
->       -- Calculate new viewport bounds after scroll
->       -- Forward: viewport shifts forward (first and last both increase by count)
->       -- Backward: viewport shifts backward (first and last both decrease by count)
->       let newOffset = extractNewPosition adjustedLines dir
->           (newFirstLine, newLastLine) = case dir of
->             Forward  -> (firstLine + fromIntegral count, lastLine + fromIntegral count)
->             Backward -> (firstLine - fromIntegral count, lastLine - fromIntegral count)
->           newPosition = LinePosition newOffset newFirstLine newLastLine origin
->
->       return (result, newPosition)
+>   -- Open file handle
+>   h <- ensureHandle lc
+>   
+>   -- Create read function starting from given offset
+>   let readFn offset size = do
+>         let absOffset = case dir of
+>               Forward  -> startOffset + offset
+>               Backward -> offset  -- Backward offsets are already absolute
+>         hSeek h AbsoluteSeek (fromInteger absOffset)
+>         BS.hGet h (fromInteger size)
+>       remainingSize = case dir of
+>         Forward  -> lcFileSize lc - startOffset
+>         Backward -> startOffset  -- For backward, we read from 0 to startOffset
+>   
+>   -- Scan in the specified direction
+>   linesWithOffsets <- scanLinesWithOffsets dir remainingSize readFn count
+>   
+>   -- Adjust offsets to be absolute and cache lines by offset
+>   let adjustedLines = case dir of
+>         Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
+>         Backward -> linesWithOffsets  -- Already absolute
+>   
+>   forM_ adjustedLines $ \(text, offset) ->
+>     insertWithEviction lc offset text
+>   
+>   -- Calculate line numbers for the returned lines
+>   -- The caller tells us the starting line number via startLineNum parameter
+>   let lineNumbers = case dir of
+>         Forward  -> [startLineNum .. startLineNum + fromIntegral count - 1]
+>         Backward -> reverse [startLineNum - fromIntegral count + 1 .. startLineNum]
+>       result = zip (map fst adjustedLines) lineNumbers
+>   
+>   -- Update sparse index
+>   let indexStep = lcIndexStep lc
+>       indexEntries = [(lineNum, offset) | ((text, offset), lineNum) <- zip adjustedLines lineNumbers,
+>                                            lineNum `mod` fromIntegral indexStep == 0]
+>   sparseIdx <- readIORef (lcSparseIdx lc)
+>   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
+>   writeIORef (lcSparseIdx lc) sparseIdx'
+>   
+>   -- Calculate TWO positions
+>   let topOffset = case dir of
+>         Forward  -> startOffset  -- Top stays when scrolling down
+>         Backward -> if null adjustedLines then startOffset else snd (head adjustedLines)
+>       bottomOffset = case dir of
+>         Forward  -> if null adjustedLines 
+>                     then startOffset
+>                     else let (lastText, lastOff) = last adjustedLines
+>                          in lastOff + fromIntegral (T.length lastText) + 1
+>         Backward -> startOffset  -- Bottom stays when scrolling up
+>       topPos = LinePosition topOffset origin
+>       bottomPos = LinePosition bottomOffset origin
+>   
+>   return (result, topPos, bottomPos)
 
 Cache Management
 ----------------
@@ -443,8 +474,8 @@ Internal Helper Functions
 
 
 
-> -- | Update LRU order (move accessed lines to end)
-> updateLRU :: LineCache -> [Integer] -> IO ()
+> -- | Update LRU order (move accessed offsets to end)
+> updateLRU :: LineCache -> [Offset] -> IO ()
 > updateLRU lc accessed = do
 >   lru <- readIORef (lcLRUOrder lc)
 >   let lru' = filter (`notElem` accessed) lru ++ accessed
@@ -467,9 +498,9 @@ Internal Helper Functions
 
 
 
-> -- | Insert a single line into cache with LRU eviction
-> insertWithEviction :: LineCache -> Integer -> T.Text -> IO ()
-> insertWithEviction lc lineNum content = do
+> -- | Insert a single line into cache with LRU eviction (keyed by offset)
+> insertWithEviction :: LineCache -> Offset -> T.Text -> IO ()
+> insertWithEviction lc offset content = do
 >   cache <- readIORef (lcContent lc)
 >   lru <- readIORef (lcLRUOrder lc)
 >   
@@ -477,7 +508,7 @@ Internal Helper Functions
 >   let currentSize = Map.size cache
 >       maxSize = lcMaxContent lc
 >   
->   (cache', lru') <- if currentSize >= maxSize && lineNum `Map.notMember` cache
+>   (cache', lru') <- if currentSize >= maxSize && offset `Map.notMember` cache
 >     then do
 >       -- Need to evict oldest entry
 >       case lru of
@@ -487,11 +518,10 @@ Internal Helper Functions
 >         [] -> return (cache, lru)
 >     else return (cache, lru)
 >   
->   -- Insert new line
->   let cache'' = Map.insert lineNum content cache'
->       lru'' = filter (/= lineNum) lru' ++ [lineNum]
+>   -- Insert new line by offset
+>   let cache'' = Map.insert offset content cache'
+>       lru'' = filter (/= offset) lru' ++ [offset]
 >   
 >   writeIORef (lcContent lc) cache''
 >   writeIORef (lcLRUOrder lc) lru''
-
 
