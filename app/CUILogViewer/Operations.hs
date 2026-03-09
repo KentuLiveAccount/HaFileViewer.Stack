@@ -60,7 +60,7 @@ scrollDown vs = do
       viewport = vsViewport vs
   
   -- At EOF or empty viewport, don't scroll
-  if null viewport
+  if null viewport || (cursorOrigin cursor == FromEnd && cursorLastLine cursor == -1)
     then return vs
     else do
       -- Use bottom position to read 1 more line forward

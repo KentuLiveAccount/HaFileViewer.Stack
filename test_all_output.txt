@@ -1,0 +1,907 @@
+
+Warning: Stack has not been tested with GHC versions 9.10 and above, and using 9.10.3, this may
+         fail.
+C:\sr\hooks\ghc-install.sh: line 12: ghcup: command not found
+C:\sr\hooks\ghc-install.sh: line 12: ghcup: command not found
+Installing 9.10.3 via ghcup failed
+
+Warning: GHC install hook exited with code: 3.
+
+Warning: Stack has not been tested with Cabal versions 3.12 and above, but version 3.12.1.0 was
+         found, this may fail.
+ha-file-viewer-0.1.0.0: unregistering (dependencies changed)
+ha-file-viewer> configure (lib + exe + test)
+Configuring ha-file-viewer-0.1.0.0...
+ha-file-viewer> build (lib + exe + test) with ghc-9.10.3
+Preprocessing library for ha-file-viewer-0.1.0.0...
+Building library for ha-file-viewer-0.1.0.0...
+[1 of 8] Compiling HaFileViewer.LineMap.Common
+[2 of 8] Compiling HaFileViewer.LineMap
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineMap.lhs:67:3: warning: [GHC-66111] [-Wunused-imports]
+    The import of `Data.Int' is redundant
+      except perhaps to import instances from `Data.Int'
+    To import instances alone, use: import Data.Int()
+   |
+67 | > import Data.Int (Int64)
+
+   |   ^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineMap.lhs:68:3: warning: [GHC-66111] [-Wunused-imports]
+    The import of `Data.List' is redundant
+      except perhaps to import instances from `Data.List'
+    To import instances alone, use: import Data.List()
+   |
+68 | > import Data.List (sortBy, nubBy)
+
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineMap.lhs:195:16: warning: [GHC-40910] [-Wunused-matches]
+    Defined but not used: `lm'
+    |
+195 | > closeLineMap lm = return ()  -- mmap cleanup handled automatically by GC
+
+    |                ^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineMap.lhs:324:3: warning: [GHC-40910] [-Wunused-top-binds]
+    Defined but not used: `countTotalLinesIfNeeded'
+    |
+324 | > countTotalLinesIfNeeded lm = do
+
+    |   ^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineMap.lhs:370:3: warning: [GHC-40910] [-Wunused-top-binds]
+    Defined but not used: `ensureMappedLM'
+    |
+370 | > ensureMappedLM lm = ensureMapped (lmPath lm) (lmFileSize lm) (lmWindowSize lm) (lmWindow lm)
+
+    |   ^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineMap.lhs:387:3: warning: [GHC-40910] [-Wunused-top-binds]
+    Defined but not used: `countTotalLines'
+    |
+387 | > countTotalLines lm = do
+
+    |   ^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineMap.lhs:497:3: warning: [GHC-40910] [-Wunused-top-binds]
+    Defined but not used: `findOrScanBackwardTo'
+    |
+497 | > findOrScanBackwardTo lm linesFromEnd = do
+
+    |   ^^^^^^^^^^^^^^^^^^^^
+
+[3 of 8] Compiling HaFileViewer.Internal.SparseIndex
+[4 of 8] Compiling HaFileViewer.IndexedFileReader
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\IndexedFileReader.lhs:228:21: warning: [GHC-62161] [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns of type `Maybe LineIndex' not matched:
+            Nothing
+            Just (Forward _)
+    |
+228 | >               let Just (Backward total) = Map.lookup 0 idx
+
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\IndexedFileReader.lhs:241:3: warning: [GHC-40910] [-Wunused-top-binds]
+    Defined but not used: `ensureMappedLM'
+    |
+241 | > ensureMappedLM lm = ensureMapped (ifrPath lm) (ifrFileSize lm) (ifrWindowSize lm) (ifrWindow lm)
+
+    |   ^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\IndexedFileReader.lhs:314:19: warning: [GHC-40910] [-Wunused-matches]
+    Defined but not used: `y'
+    |
+314 | >     go i count (y:ys) = go (i-1) (count+1) ys  -- Keep counting and skipping
+
+    |                   ^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\IndexedFileReader.lhs:547:3: warning: [GHC-40910] [-Wunused-top-binds]
+    Defined but not used: `countBackwardLines'
+    |
+547 | > countBackwardLines lm = do
+
+    |   ^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\IndexedFileReader.lhs:587:3: warning: [GHC-40910] [-Wunused-top-binds]
+    Defined but not used: `extractSegments'
+    |
+587 | > extractSegments chunk positions =
+
+    |   ^^^^^^^^^^^^^^^
+
+[5 of 8] Compiling HaFileViewer.BidirectionalScanner
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:59:3: warning: [GHC-66111] [-Wunused-imports]
+    The qualified import of `Data.Text.Encoding' is redundant
+      except perhaps to import instances from `Data.Text.Encoding'
+    To import instances alone, use: import Data.Text.Encoding()
+   |
+59 | > import qualified Data.Text.Encoding as TE
+
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:60:3: warning: [GHC-66111] [-Wunused-imports]
+    The import of `Data.Word' is redundant
+      except perhaps to import instances from `Data.Word'
+    To import instances alone, use: import Data.Word()
+   |
+60 | > import Data.Word (Word8)
+
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:67:3: warning: [GHC-66111] [-Wunused-imports]
+    The import of `Debug.Trace' is redundant
+      except perhaps to import instances from `Debug.Trace'
+    To import instances alone, use: import Debug.Trace()
+   |
+67 | > import Debug.Trace (trace)
+
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:93:58: warning: [GHC-63394] [-Wx-partial]
+    In the use of `tail'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Replace it with 'drop' 1, or use pattern matching or 'GHC.Internal.Data.List.uncons' instead. Consider refactoring to use "Data.List.NonEmpty"."
+   |
+93 | > extractMiddlePieces ps = if length ps < 2 then [] else tail (init ps)
+
+   |                                                          ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:99:51: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+   |
+99 | > getEdgePiece ps = if null ps then BS.empty else head ps
+
+   |                                                   ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:201:56: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+201 | >           dropEmpty ps = if null ps || not (BS.null (head ps))
+
+    |                                                        ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:203:33: warning: [GHC-63394] [-Wx-partial]
+    In the use of `tail'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Replace it with 'drop' 1, or use pattern matching or 'GHC.Internal.Data.List.uncons' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+203 | >                          else tail ps
+
+    |                                 ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:414:71: warning: [GHC-63394] [-Wx-partial]
+    In the use of `tail'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Replace it with 'drop' 1, or use pattern matching or 'GHC.Internal.Data.List.uncons' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+414 | >                              dropEmpty ps = if null ps then ps else tail ps  -- Drop last (which was first)
+
+    |                                                                       ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:465:67: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+465 | >       edgeOffset = if null pieceOffsets then partialOffset else head pieceOffsets
+
+    |                                                                   ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:476:48: warning: [GHC-63394] [-Wx-partial]
+    In the use of `tail'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Replace it with 'drop' 1, or use pattern matching or 'GHC.Internal.Data.List.uncons' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+476 | >                              LeftPartial  -> tail (init pieceOffsets)
+
+    |                                                ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\BidirectionalScanner.lhs:477:57: warning: [GHC-63394] [-Wx-partial]
+    In the use of `tail'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Replace it with 'drop' 1, or use pattern matching or 'GHC.Internal.Data.List.uncons' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+477 | >                              RightPartial -> reverse (tail (init pieceOffsets))  -- Same as: reverse . extractMiddlePieces
+
+    |                                                         ^^^^
+
+[6 of 8] Compiling HaFileViewer.LineCache
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:73:30: warning: [GHC-38856] [-Wunused-imports]
+    The import of `getCurrentTime' from module `Data.Time' is redundant
+   |
+73 | > import Data.Time (UTCTime, getCurrentTime)
+
+   |                              ^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:75:3: warning: [GHC-66111] [-Wunused-imports]
+    The import of `System.IO' is redundant
+      except perhaps to import instances from `System.IO'
+    To import instances alone, use: import System.IO()
+   |
+75 | > import System.IO (hSeek, SeekMode(..))
+
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:81:7: warning: [GHC-38856] [-Wunused-imports]
+    The import of `scanLines'
+    from module `HaFileViewer.BidirectionalScanner' is redundant
+   |
+81 | >   ( scanLines, scanLinesWithOffsets, Direction(..) )
+
+   |       ^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:255:10: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+255 | >   snd (head results)  -- First line's offset
+
+    |          ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:304:47: warning: [GHC-40910] [-Wunused-matches]
+    Defined but not used: `text'
+    |
+304 | >       indexEntries = [(lineNum, offset) | ((text, offset), lineNum) <- zip linesWithOffsets lineNumbers,
+
+    |                                               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:311:63: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+311 | >   let topOffset = if null linesWithOffsets then 0 else snd (head linesWithOffsets)
+
+    |                                                               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:351:47: warning: [GHC-40910] [-Wunused-matches]
+    Defined but not used: `text'
+    |
+351 | >       indexEntries = [(lineNum, offset) | ((text, offset), lineNum) <- zip linesWithOffsets lineNumbers,
+
+    |                                               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:359:70: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+359 | >       topOffset = if null linesWithOffsets then fileSize else snd (head linesWithOffsets)
+
+    |                                                                      ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:413:47: warning: [GHC-40910] [-Wunused-matches]
+    Defined but not used: `text'
+    |
+413 | >       indexEntries = [(lineNum, offset) | ((text, offset), lineNum) <- zip adjustedLines lineNumbers,
+
+    |                                               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:422:72: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+422 | >         Backward -> if null adjustedLines then startOffset else snd (head adjustedLines)
+
+    |                                                                        ^^^^
+
+C:\GitHub\HaFileViewer.Stack\src\HaFileViewer\LineCache.lhs:479:3: warning: [GHC-40910] [-Wunused-top-binds]
+    Defined but not used: `updateLRU'
+    |
+479 | > updateLRU lc accessed = do
+
+    |   ^^^^^^^^^
+
+[7 of 8] Compiling HaFileViewer.CUILogViewer.ViewState
+[8 of 8] Compiling Paths_ha_file_viewer
+Preprocessing executable 'ha-file-viewer-cui' for ha-file-viewer-0.1.0.0...
+Building executable 'ha-file-viewer-cui' for ha-file-viewer-0.1.0.0...
+[1 of 2] Compiling Main
+[2 of 2] Compiling Paths_ha_file_viewer
+[3 of 3] Linking .stack-work\dist\1a191874\build\ha-file-viewer-cui\ha-file-viewer-cui.exe [Objects changed]
+Preprocessing test suite 'ui-systematic-test' for ha-file-viewer-0.1.0.0...
+Warning: Enabling workaround for Main module 'Main' listed in 'other-modules'
+Building test suite 'ui-systematic-test' for ha-file-viewer-0.1.0.0...
+illegally!
+[1 of 3] Compiling Operations
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:15:1: warning: [GHC-66111] [-Wunused-imports]
+    The qualified import of `Data.Text' is redundant
+      except perhaps to import instances from `Data.Text'
+    To import instances alone, use: import Data.Text()
+   |
+15 | import qualified Data.Text as T
+
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:79:33: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+   |
+79 |           let (text, lineNum) = head moreLines
+
+   |                                 ^^^^
+
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:107:31: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+107 |       let (firstLineNum, _) = head viewport
+
+    |                               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:127:37: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+127 |               let (text, lineNum) = head prevLines
+
+    |                                     ^^^^
+
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:193:31: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+193 |       let (firstLineNum, _) = head viewport
+
+    |                               ^^^^
+
+[2 of 3] Compiling Main
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:9:1: warning: [GHC-66111] [-Wunused-imports]
+    The qualified import of `Data.Text' is redundant
+      except perhaps to import instances from `Data.Text'
+    To import instances alone, use: import Data.Text()
+  |
+9 | import qualified Data.Text as T
+
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:12:1: warning: [GHC-66111] [-Wunused-imports]
+    The import of `HaFileViewer.BidirectionalScanner' is redundant
+      except perhaps to import instances from `HaFileViewer.BidirectionalScanner'
+    To import instances alone, use: import HaFileViewer.BidirectionalScanner()
+   |
+12 | import HaFileViewer.BidirectionalScanner (Direction(..))
+
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:13:1: warning: [GHC-66111] [-Wunused-imports]
+    The import of `System.IO' is redundant
+      except perhaps to import instances from `System.IO'
+    To import instances alone, use: import System.IO()
+   |
+13 | import System.IO (writeFile)
+
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:14:38: warning: [GHC-38856] [-Wunused-imports]
+    The import of `getCurrentDirectory, setCurrentDirectory'
+    from module `System.Directory' is redundant
+   |
+14 | import System.Directory (removeFile, getCurrentDirectory, setCurrentDirectory)
+
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:16:23: warning: [GHC-38856] [-Wunused-imports]
+    The import of `when' from module `Control.Monad' is redundant
+   |
+16 | import Control.Monad (when, foldM)
+
+   |                       ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:29:48: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Show a0)
+          arising from a use of `show' at test_ui_systematic.hs:29:48-51
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:29:63
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 100'
+          at test_ui_systematic.hs:29:62-69
+    * In the expression: show i
+      In the first argument of `unlines', namely
+        `[show i | i <- [1 .. 100]]'
+      In the second argument of `($)', namely
+        `unlines [show i | i <- [1 .. 100]]'
+   |
+29 | createTestFile = writeFile testFile $ unlines [show i | i <- [1..100]]
+
+   |                                                ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:56:53: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+   |
+56 |       firstLine = if null viewport then 0 else fst (head viewport)
+
+   |                                                     ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:82:15: warning: [GHC-63397] [-Wname-shadowing]
+    This binding for `last' shadows the existing binding
+      imported from `Prelude' at test_ui_systematic.hs:7:8-11
+      (and originally defined in `ghc-internal-9.1003.0:GHC.Internal.List')
+   |
+82 |   let (first, last, count) = getViewportInfo vs
+
+   |               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:95:15: warning: [GHC-63397] [-Wname-shadowing]
+    This binding for `last' shadows the existing binding
+      imported from `Prelude' at test_ui_systematic.hs:7:8-11
+      (and originally defined in `ghc-internal-9.1003.0:GHC.Internal.List')
+   |
+95 |   let (first, last, count) = getViewportInfo vs'
+
+   |               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:145:15: warning: [GHC-63397] [-Wname-shadowing]
+    This binding for `last' shadows the existing binding
+      imported from `Prelude' at test_ui_systematic.hs:7:8-11
+      (and originally defined in `ghc-internal-9.1003.0:GHC.Internal.List')
+    |
+145 |   let (first, last, count) = getViewportInfo vs'
+
+    |               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:159:15: warning: [GHC-63397] [-Wname-shadowing]
+    This binding for `last' shadows the existing binding
+      imported from `Prelude' at test_ui_systematic.hs:7:8-11
+      (and originally defined in `ghc-internal-9.1003.0:GHC.Internal.List')
+    |
+159 |   let (first, last, count) = getViewportInfo vs''
+
+    |               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:172:15: warning: [GHC-63397] [-Wname-shadowing]
+    This binding for `last' shadows the existing binding
+      imported from `Prelude' at test_ui_systematic.hs:7:8-11
+      (and originally defined in `ghc-internal-9.1003.0:GHC.Internal.List')
+    |
+172 |   let (first, last, count) = getViewportInfo vs''
+
+    |               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:184:15: warning: [GHC-63397] [-Wname-shadowing]
+    This binding for `last' shadows the existing binding
+      imported from `Prelude' at test_ui_systematic.hs:7:8-11
+      (and originally defined in `ghc-internal-9.1003.0:GHC.Internal.List')
+    |
+184 |   let (first, last, count) = getViewportInfo vs''
+
+    |               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:200:15: warning: [GHC-63397] [-Wname-shadowing]
+    This binding for `last' shadows the existing binding
+      imported from `Prelude' at test_ui_systematic.hs:7:8-11
+      (and originally defined in `ghc-internal-9.1003.0:GHC.Internal.List')
+    |
+200 |   let (first, last, count) = getViewportInfo vs5
+
+    |               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:248:59: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+248 |       firstInViewport = if null viewport then 0 else fst (head viewport)
+
+    |                                                           ^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:286:52: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:286:52
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 10'
+          at test_ui_systematic.hs:286:51-57
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 10]'
+      In a stmt of a 'do' block:
+        vs1 <- foldM (\ s _ -> simulateScrollDown s) vs0 [1 .. 10]
+    |
+286 |   vs1 <- foldM (\s _ -> simulateScrollDown s) vs0 [1..10]
+
+    |                                                    ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:289:52: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:289:52
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 5'
+          at test_ui_systematic.hs:289:51-56
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 5]'
+      In a stmt of a 'do' block:
+        vs2 <- foldM (\ s _ -> simulateScrollDown s) vs1 [1 .. 5]
+    |
+289 |   vs2 <- foldM (\s _ -> simulateScrollDown s) vs1 [1..5]
+
+    |                                                    ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:290:50: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:290:50
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 5'
+          at test_ui_systematic.hs:290:49-54
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 5]'
+      In a stmt of a 'do' block:
+        vs3 <- foldM (\ s _ -> simulateScrollUp s) vs2 [1 .. 5]
+    |
+290 |   vs3 <- foldM (\s _ -> simulateScrollUp s) vs2 [1..5]
+
+    |                                                  ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:301:52: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:301:52
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 20'
+          at test_ui_systematic.hs:301:51-57
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 20]'
+      In a stmt of a 'do' block:
+        vs1 <- foldM (\ s _ -> simulateScrollDown s) vs0 [1 .. 20]
+    |
+301 |   vs1 <- foldM (\s _ -> simulateScrollDown s) vs0 [1..20]
+
+    |                                                    ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:304:50: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:304:50
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 5'
+          at test_ui_systematic.hs:304:49-54
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 5]'
+      In a stmt of a 'do' block:
+        vs2 <- foldM (\ s _ -> simulateScrollUp s) vs1 [1 .. 5]
+    |
+304 |   vs2 <- foldM (\s _ -> simulateScrollUp s) vs1 [1..5]
+
+    |                                                  ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:305:52: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:305:52
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 5'
+          at test_ui_systematic.hs:305:51-56
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 5]'
+      In a stmt of a 'do' block:
+        vs3 <- foldM (\ s _ -> simulateScrollDown s) vs2 [1 .. 5]
+    |
+305 |   vs3 <- foldM (\s _ -> simulateScrollDown s) vs2 [1..5]
+
+    |                                                    ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:318:50: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:318:50
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 5'
+          at test_ui_systematic.hs:318:49-54
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 5]'
+      In a stmt of a 'do' block:
+        vs2 <- foldM (\ s _ -> simulateScrollUp s) vs1 [1 .. 5]
+    |
+318 |   vs2 <- foldM (\s _ -> simulateScrollUp s) vs1 [1..5]
+
+    |                                                  ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:319:52: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:319:52
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 5'
+          at test_ui_systematic.hs:319:51-56
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 5]'
+      In a stmt of a 'do' block:
+        vs3 <- foldM (\ s _ -> simulateScrollDown s) vs2 [1 .. 5]
+    |
+319 |   vs3 <- foldM (\s _ -> simulateScrollDown s) vs2 [1..5]
+
+    |                                                    ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:341:52: warning: [GHC-18042] [-Wtype-defaults]
+    * Defaulting the type variable `a0' to type `Integer' in the following constraints
+        (Num a0)
+          arising from the literal `1' at test_ui_systematic.hs:341:52
+        (Enum a0)
+          arising from the arithmetic sequence `1 .. 10'
+          at test_ui_systematic.hs:341:51-57
+    * In the expression: 1
+      In the third argument of `foldM', namely `[1 .. 10]'
+      In a stmt of a 'do' block:
+        vs2 <- foldM (\ s _ -> simulateScrollDown s) vs1 [1 .. 10]
+    |
+341 |   vs2 <- foldM (\s _ -> simulateScrollDown s) vs1 [1..10]
+
+    |                                                    ^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:355:27: warning: [GHC-40910] [-Wunused-local-binds]
+    Defined but not used: `endCount'
+    |
+355 |   let (endFirst, endLast, endCount) = getViewportInfo vs1
+
+    |                           ^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:359:17: warning: [GHC-40910] [-Wunused-local-binds]
+    Defined but not used: `upLast'
+    |
+359 |   let (upFirst, upLast, upCount) = getViewportInfo vs2
+
+    |                 ^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\test_ui_systematic.hs:366:29: warning: [GHC-40910] [-Wunused-local-binds]
+    Defined but not used: `downCount'
+    |
+366 |   let (downFirst, downLast, downCount) = getViewportInfo vs3
+
+    |                             ^^^^^^^^^
+
+[3 of 3] Compiling Paths_ha_file_viewer
+[4 of 4] Linking .stack-work\dist\1a191874\build\ui-systematic-test\ui-systematic-test.exe
+Preprocessing test suite 'ha-file-viewer-test3' for ha-file-viewer-0.1.0.0...
+Building test suite 'ha-file-viewer-test3' for ha-file-viewer-0.1.0.0...
+[1 of 2] Compiling Main
+C:\GitHub\HaFileViewer.Stack\test3\Spec.hs:6:36: warning: [GHC-38856] [-Wunused-imports]
+    The import of `Handle' from module `System.IO' is redundant
+  |
+6 | import System.IO (hPutStr, hClose, Handle)
+
+  |                                    ^^^^^^
+
+[2 of 2] Compiling Paths_ha_file_viewer
+[3 of 3] Linking .stack-work\dist\1a191874\build\ha-file-viewer-test3\ha-file-viewer-test3.exe
+Preprocessing executable 'ha-file-viewer-web' for ha-file-viewer-0.1.0.0...
+Building executable 'ha-file-viewer-web' for ha-file-viewer-0.1.0.0...
+[1 of 2] Compiling Main
+C:\GitHub\HaFileViewer.Stack\app\web\Main.hs:25:7: warning: [GHC-68441] [-Wdeprecations]
+    In the use of `params' (imported from Web.Scotty):
+    Deprecated: "(#204) Not a good idea to treat all parameters identically. Use pathParams, formParams and queryParams instead. "
+   |
+25 |       ps <- params
+
+   |       ^^^^^^^^^^^^
+
+C:\GitHub\HaFileViewer.Stack\app\web\Main.hs:44:7: warning: [GHC-68441] [-Wdeprecations]
+    In the use of `params' (imported from Web.Scotty):
+    Deprecated: "(#204) Not a good idea to treat all parameters identically. Use pathParams, formParams and queryParams instead. "
+   |
+44 |       ps <- params
+
+   |       ^^^^^^^^^^^^
+
+[2 of 2] Compiling Paths_ha_file_viewer
+[3 of 3] Linking .stack-work\dist\1a191874\build\ha-file-viewer-web\ha-file-viewer-web.exe [Objects changed]
+Preprocessing executable 'cui-log-viewer' for ha-file-viewer-0.1.0.0...
+Building executable 'cui-log-viewer' for ha-file-viewer-0.1.0.0...
+[1 of 2] Compiling Operations
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:79:33: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+   |
+79 |           let (text, lineNum) = head moreLines
+
+   |                                 ^^^^
+
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:107:31: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+107 |       let (firstLineNum, _) = head viewport
+
+    |                               ^^^^
+
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:127:37: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+127 |               let (text, lineNum) = head prevLines
+
+    |                                     ^^^^
+
+C:\GitHub\HaFileViewer.Stack\app\CUILogViewer\Operations.hs:193:31: warning: [GHC-63394] [-Wx-partial]
+    In the use of `head'
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    |
+193 |       let (firstLineNum, _) = head viewport
+
+    |                               ^^^^
+
+[2 of 2] Compiling Main
+[3 of 3] Linking .stack-work\dist\1a191874\build\cui-log-viewer\cui-log-viewer.exe [Objects changed]
+Preprocessing test suite 'ha-file-viewer-test' for ha-file-viewer-0.1.0.0...
+Building test suite 'ha-file-viewer-test' for ha-file-viewer-0.1.0.0...
+[1 of 2] Compiling Main
+[2 of 2] Compiling Paths_ha_file_viewer
+[3 of 3] Linking .stack-work\dist\1a191874\build\ha-file-viewer-test\ha-file-viewer-test.exe
+Preprocessing test suite 'ha-file-viewer-test2' for ha-file-viewer-0.1.0.0...
+Building test suite 'ha-file-viewer-test2' for ha-file-viewer-0.1.0.0...
+[1 of 2] Compiling Main
+[2 of 2] Compiling Paths_ha_file_viewer
+[3 of 3] Linking .stack-work\dist\1a191874\build\ha-file-viewer-test2\ha-file-viewer-test2.exe
+ha-file-viewer> copy/register
+Installing library in C:\GitHub\HaFileViewer.Stack\.stack-work\install\15e8c025\lib\x86_64-windows-ghc-9.10.3-b42a\ha-file-viewer-0.1.0.0-4KuHajVVHrU6Taq0E22Ha
+Installing executable ha-file-viewer-cui in C:\GitHub\HaFileViewer.Stack\.stack-work\install\15e8c025\bin
+Installing executable ha-file-viewer-web in C:\GitHub\HaFileViewer.Stack\.stack-work\install\15e8c025\bin
+Installing executable cui-log-viewer in C:\GitHub\HaFileViewer.Stack\.stack-work\install\15e8c025\bin
+Registering library for ha-file-viewer-0.1.0.0...
+ha-file-viewer> test (suite: ha-file-viewer-test)
+
+
+HaFileViewer.LineMap
+  returns correct slice and supports negative indexing [v]
+  returns empty list for empty file [v]
+  start beyond EOF returns empty list [v]
+  count larger than remaining returns remaining lines [v]
+  handles EOF access (last partial line returned) [v]
+  handles chunk boundary for very long lines [v]
+  negative index: last line only [v]
+  negative index: last 3 lines [v]
+  negative index: all lines via -n [v]
+  negative index beyond file start returns partial [v]
+  negative index with count exceeding available [v]
+  negative access with partial forward index [v]
+  negative access with fully-built forward index [v]
+  forward access when backward table would overlap [v]
+  forward access in range not covered by backward table [v]
+  forward scan through potential convergence point [v]
+  forward access with simulated backward table overlap [v]
+  forward access when backward table exists but no overlap [v]
+  convergence: forward then backward access [v]
+  convergence: interleaved forward and backward [v]
+  convergence: same region via positive and negative [v]
+  large file with sparse access pattern [v]
+
+  About to call getLines(-1) 1...
+  getLines(-1) 1 on 20K line file took: 0s
+
+  About to call getLines(-5) 5...
+  Got: ["LINE19996","LINE19997","LINE19998","LINE19999","LINE20000"]
+  fast tail access on large file without forward index [v]
+
+Finished in 0.9060 seconds
+23 examples, 0 failures
+
+
+
+ha-file-viewer> Test suite ha-file-viewer-test passed
+ha-file-viewer> test (suite: ha-file-viewer-test2)
+
+
+HaFileViewer.IndexedFileReader (Unified Index)
+  returns correct slice and supports negative indexing [v]
+  returns empty list for empty file [v]
+  start beyond EOF returns empty list [v]
+  count larger than remaining returns remaining lines [v]
+  handles EOF access (last partial line returned) [v]
+  negative index: last line only [v]
+  negative index: last 3 lines [v]
+  negative index: all lines via -n [v]
+  convergence: forward then backward access [v]
+
+  getLines(-1) 1 on 20K line file took: 0s
+  fast tail access on large file without forward index [v]
+
+Finished in 0.2215 seconds
+10 examples, 0 failures
+
+
+
+ha-file-viewer> Test suite ha-file-viewer-test2 passed
+ha-file-viewer> test (suite: ha-file-viewer-test3)
+
+
+HaFileViewer.BidirectionalScanner
+  Forward scanning
+    reads lines from start of file [v]
+    handles file with trailing newline [v]
+    handles file without trailing newline [v]
+    handles single line with newline [v]
+    handles single line without newline [v]
+    handles empty file [v]
+    stops when requested count is reached [v]
+  Backward scanning
+    reads lines from end of file [v]
+    handles file with trailing newline [v]
+    handles file without trailing newline [v]
+    reads last line from file without trailing newline [v]
+    handles single line with newline [v]
+    handles single line without newline [v]
+    handles empty file [v]
+    stops when requested count is reached [v]
+  Symmetry tests
+    forward and backward return same lines for whole file (with trailing LF) [v]
+    forward and backward return same lines for whole file (no trailing LF) [v]
+    forward from start N lines = backward from start N lines [v]
+  Edge cases
+    handles lines with only newlines [v]
+    handles empty lines in middle [v]
+    handles very long line [v]
+    backward handles empty lines [v]
+
+Finished in 0.4740 seconds
+22 examples, 0 failures
+
+
+
+ha-file-viewer> Test suite ha-file-viewer-test3 passed
+ha-file-viewer> test (suite: ui-systematic-test)
+
+Test file created
+
+=== Systematic UI Test Suite ===
+================================
+
+01. Initial state (lines 1-25)... [PASS]
+02. Single scroll down (lines 2-26)...   Initial viewport: 1-25
+  DEBUG: first=2 last=26 count=25
+  New viewport bounds: 2-26
+  Expected: first=2 last=26 count=25
+[PASS]
+03. Down then Up returns to start (Bug #6)...   Initial: (1,25,25)
+  After down: (2,26,25)
+  After up: (1,25,25)
+  Expected to match original: (1,25,25)
+[PASS]
+04. Up then Down returns to middle... [PASS]
+05. Jump to end shows -25 to -1... [PASS]
+06. Scroll up from end shows -26 to -2 (Bug #5)... [PASS]
+07. Scroll down from end stays at -25 to -1... [FAIL]
+08. Jump to start from end... [PASS]
+09. Multiple scrolls down (5x)... [PASS]
+10. Multiple scrolls reversible (5 down + 5 up)... [PASS]
+11. No duplicate lines in viewport... [PASS]
+12. Viewport bounds match cursor tracking... [PASS]
+13. Origin stays constant during scroll... [PASS]
+14. Origin changes on jump commands... [PASS]
+
+--- Reversibility Properties ---
+15. Reversible: 5 down + 5 up (from middle)... [PASS]
+16. Reversible: 5 up + 5 down (from middle)... [PASS]
+17. Reversible: 5 up + 5 down (from end)... [PASS]
+
+--- Boundary Conditions ---
+18. Up at start does nothing... [PASS]
+19. Down at end does nothing... [FAIL]
+20. Arrow keys work after jump to end... [FAIL]
+
+================================
+
+Test file cleaned up
+
+
+
+ha-file-viewer> Test suite ui-systematic-test passed
+Completed 2 action(s).
