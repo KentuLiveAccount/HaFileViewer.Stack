@@ -109,10 +109,11 @@ Data Types
 > -- | Line cache with integrated sparse index and content cache
 > data LineCache = LineCache
 >   { -- File information
->     lcFilePath    :: FilePath
->   , lcFileSize    :: Integer
->   , lcFileModTime :: IORef UTCTime
->   , lcHandle      :: IORef (Maybe Handle)
+>     lcFilePath      :: FilePath
+>   , lcFileSize      :: Integer
+>   , lcFileModTime   :: IORef UTCTime
+>   , lcHandle        :: IORef (Maybe Handle)
+>   , lcLineEndingLen :: Int  -- ^ Line ending length: 2 for CR-LF, 1 for LF-only
 >     
 >     -- Sparse index (internal optimization)
 >   , lcSparseIdx   :: IORef SI.SparseIndex
@@ -152,6 +153,26 @@ Data Types
 Creation and Lifecycle
 ----------------------
 
+> -- | Detect line ending style by checking first line in file
+> -- Returns 2 for CR-LF (Windows), 1 for LF-only (Unix)
+> detectLineEnding :: FilePath -> IO Int
+> detectLineEnding path = do
+>   h <- openFile path ReadMode
+>   hSetBinaryMode h True  -- Read raw bytes
+>   chunk <- BS.hGet h 1024  -- Read first 1KB
+>   hClose h
+>   
+>   -- Look for first LF and check if preceded by CR
+>   let lfPos = BS.elemIndex 10 chunk  -- Find LF byte
+>   case lfPos of
+>     Nothing -> return 1  -- No newline found, assume LF-only
+>     Just 0  -> return 1  -- LF at start, no room for CR
+>     Just pos -> 
+>       let prevByte = BS.index chunk (pos - 1)
+>       in if prevByte == 13  -- CR byte
+>          then return 2      -- CR-LF style (Windows)
+>          else return 1      -- LF-only style (Unix)
+
 > -- | Open a line cache for a file (uses default configuration)
 > openLineCache :: FilePath -> IO LineCache
 > openLineCache path = openLineCacheWith path defaultConfig
@@ -161,6 +182,9 @@ Creation and Lifecycle
 > openLineCacheWith path config = do
 >   size <- getFileSize path
 >   modTime <- getModificationTime path
+>   
+>   -- Detect line ending style by reading first chunk
+>   lineEndingLen <- detectLineEnding path
 >   
 >   modTimeRef <- newIORef modTime
 >   handleRef <- newIORef Nothing
@@ -174,6 +198,7 @@ Creation and Lifecycle
 >     , lcFileSize = size
 >     , lcFileModTime = modTimeRef
 >     , lcHandle = handleRef
+>     , lcLineEndingLen = lineEndingLen
 >     , lcSparseIdx = sparseIdx
 >     , lcIndexStep = ccIndexStep config
 >     , lcContent = content
@@ -312,8 +337,10 @@ along with content, and an opaque position marker for resuming reads.
 >       bottomOffset = if null linesWithOffsets 
 >                      then 0 
 >                      else let (lastText, lastOff) = last linesWithOffsets
->                           -- Use byte length, not character length!
->                           in lastOff + fromIntegral (BS.length $ TE.encodeUtf8 lastText) + 1
+>                               textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
+>                               lineEndLen = fromIntegral (lcLineEndingLen lc)
+>                           -- text + line_ending (CR-LF=2, LF=1)
+>                           in lastOff + textLen + lineEndLen
 >       topPos = LinePosition topOffset FromStart
 >       bottomPos = LinePosition bottomOffset FromStart
 >   
@@ -361,11 +388,13 @@ along with content, and an opaque position marker for resuming reads.
 >       bottomOffset = if null linesWithOffsets
 >                      then fileSize
 >                      else let (lastText, lastOff) = last linesWithOffsets
->                           -- Use byte length, not character length!
->                           in lastOff + fromIntegral (BS.length $ TE.encodeUtf8 lastText) + 1
+>                               textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
+>                               lineEndLen = fromIntegral (lcLineEndingLen lc)
+>                           -- text + line_ending (CR-LF=2, LF=1)
+>                           in lastOff + textLen + lineEndLen
 >       topPos = LinePosition topOffset FromEnd
 >       bottomPos = LinePosition bottomOffset FromEnd
->   
+>
 >   return (result, topPos, bottomPos)
 
 > -- | Read N lines from a given position in specified direction
@@ -426,8 +455,10 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> if null adjustedLines 
 >                     then startOffset
 >                     else let (lastText, lastOff) = last adjustedLines
->                          -- Try +1 to see if scanner already accounts for CR
->                          in lastOff + fromIntegral (BS.length $ TE.encodeUtf8 lastText) + 1
+>                              textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
+>                              lineEndLen = fromIntegral (lcLineEndingLen lc)
+>                          -- text + line_ending (CR-LF=2, LF=1)
+>                          in lastOff + textLen + lineEndLen
 >         Backward -> startOffset  -- Bottom stays when scrolling up
 >       topPos = LinePosition topOffset origin
 >       bottomPos = LinePosition bottomOffset origin

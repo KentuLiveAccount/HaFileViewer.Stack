@@ -15,10 +15,8 @@ import System.Directory (removeFile, getCurrentDirectory, setCurrentDirectory)
 import Control.Exception (bracket)
 import Control.Monad (when, foldM)
 
--- Import actual operations - these will be the REAL functions from Main.hs
--- We need to add the CUILogViewer app directory to the module path
--- For now, we'll manually load Operations module
-import qualified Operations as Ops
+-- Import actual operations - these will be the REAL functions from Operations module
+import qualified HaFileViewer.CUILogViewer.Operations as Ops
 
 -- Test file setup
 testFile :: FilePath
