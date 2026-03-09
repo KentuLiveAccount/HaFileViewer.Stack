@@ -13,7 +13,7 @@ import HaFileViewer.LineCache
 import System.Environment (getArgs)
 import System.Directory (doesFileExist)
 import Control.Monad.IO.Class (liftIO)
-import qualified Operations as Ops
+import qualified HaFileViewer.CUILogViewer.Operations as Ops
 
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)

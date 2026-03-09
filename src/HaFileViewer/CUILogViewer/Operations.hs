@@ -2,7 +2,7 @@
 
 -- | CUILogViewer operations module
 -- Exports all scroll/jump operations for use in both Main and tests
-module Operations
+module HaFileViewer.CUILogViewer.Operations
   ( scrollDown
   , scrollUp
   , pageDown

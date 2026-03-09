@@ -11,6 +11,7 @@ library:
     - HaFileViewer.BidirectionalScanner
     - HaFileViewer.LineCache
     - HaFileViewer.CUILogViewer.ViewState
+    - HaFileViewer.CUILogViewer.Operations
   source-dirs: src
   ghc-options: -Wall
   dependencies:
