@@ -9,6 +9,7 @@ import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.CUILogViewer.Operations as Ops
 import Control.Monad (foldM)
 import System.IO (IOMode(..), withFile)
+import qualified Data.Text as T
 
 -- Test file path
 testFile :: FilePath
@@ -26,6 +27,42 @@ getViewportInfo vs =
       last' = if null viewport then 0 else fst (last viewport)
       count = length viewport
   in (first, last', count)
+
+-- Debug helper: Print detailed viewport content
+printViewportDebug :: String -> ViewState -> IO ()
+printViewportDebug label vs = do
+  putStrLn ""
+  putStrLn $ "=== DEBUG: " ++ label ++ " ==="
+  
+  let viewport = vsViewport vs
+      cursor = vsCursor vs
+  
+  -- Print cursor positions
+  putStrLn "Cursor State:"
+  putStrLn $ "  topPosition: (internal)"
+  putStrLn $ "  bottomPosition: (internal)"
+  putStrLn $ "  firstLine: " ++ show (cursorFirstLine cursor)
+  putStrLn $ "  lastLine: " ++ show (cursorLastLine cursor)
+  putStrLn $ "  origin: " ++ show (cursorOrigin cursor)
+  
+  -- Print viewport lines
+  putStrLn "\nViewport Content:"
+  putStrLn $ "Total lines in viewport: " ++ show (length viewport)
+  
+  let emptyCount = length (filter (\(_, txt) -> txt == "") viewport)
+  putStrLn $ "Empty lines: " ++ show emptyCount
+  
+  putStrLn "\nLine Details:"
+  mapM_ (\(lineNum, text) -> do
+    let len = T.length text
+        first50 = T.take 50 text
+        isEmpty = text == ""
+        emptyMarker = if isEmpty then " <EMPTY>" else ""
+        lineStr = show lineNum
+        lenStr = show len
+    putStrLn $ "  Line " ++ lineStr ++ ": len=" ++ lenStr ++ " " ++ T.unpack first50 ++ emptyMarker
+    ) viewport
+  putStrLn ""
 
 -- Test: Scroll down to line 100, then scroll back up
 testScrollDownAndBackUp :: IO ()
@@ -53,6 +90,10 @@ testScrollDownAndBackUp = do
             let hasEmpty = any (\(_, txt) -> txt == "") viewport'
             if hasEmpty
               then putStrLn "  >>> FOUND EMPTY LINES IN VIEWPORT <<<"
+              else return ()
+            -- Add debug dump when we reach line 30
+            if last' == 30
+              then printViewportDebug "VIEWPORT AT LINE 30"  vs'
               else return ()
             scrollDownUntil100 vs'
   

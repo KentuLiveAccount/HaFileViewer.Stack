@@ -1,0 +1,296 @@
+=== Bug Reproduction Test ===
+File: test-onenote.log
+
+Initial viewport: 1 to 25
+
+Scrolling down until line 100 is visible...
+  After scroll: lines 2 to 26
+  After scroll: lines 3 to 27
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 4 to 28
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 5 to 29
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 6 to 30
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+
+=== DEBUG: VIEWPORT AT LINE 30 ===
+Cursor State:
+  topPosition: (internal)
+  bottomPosition: (internal)
+  firstLine: 6
+  lastLine: 30
+  origin: FromStart
+
+Viewport Content:
+Total lines in viewport: 25
+Empty lines: 2
+
+Line Details:
+  Line 6: len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 7: len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 8: len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 9: len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 10: len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 11: len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 12: len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 13: len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 14: len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 15: len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 16: len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 17: len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 18: len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 19: len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 20: len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 21: len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 22: len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 23: len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 24: len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+  Line 25: len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 26: len=23 xy.","Proxy":"Server"}	
+  Line 27: len=0  <EMPTY>
+  Line 28: len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+  Line 29: len=0  <EMPTY>
+  Line 30: len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+
+  After scroll: lines 7 to 31
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 8 to 32
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 9 to 33
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 10 to 34
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 11 to 35
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 12 to 36
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 13 to 37
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 14 to 38
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 15 to 39
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 16 to 40
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 17 to 41
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 18 to 42
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 19 to 43
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 20 to 44
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 21 to 45
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 22 to 46
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 23 to 47
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 24 to 48
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 25 to 49
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 26 to 50
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 27 to 51
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 28 to 52
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 29 to 53
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 30 to 54
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 31 to 55
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 32 to 56
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 33 to 57
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 34 to 58
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 35 to 59
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 36 to 60
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 37 to 61
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 38 to 62
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 39 to 63
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 40 to 64
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 41 to 65
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 42 to 66
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 43 to 67
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 44 to 68
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 45 to 69
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 46 to 70
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 47 to 71
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 48 to 72
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 49 to 73
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 50 to 74
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 51 to 75
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 52 to 76
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 53 to 77
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 54 to 78
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 55 to 79
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 56 to 80
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 57 to 81
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 58 to 82
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 59 to 83
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 60 to 84
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 61 to 85
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 62 to 86
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 63 to 87
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 64 to 88
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 65 to 89
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 66 to 90
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 67 to 91
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 68 to 92
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 69 to 93
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 70 to 94
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 71 to 95
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 72 to 96
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 73 to 97
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 74 to 98
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 75 to 99
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll: lines 76 to 100
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+
+Reached line 100. Viewport: 76 to 100
+
+Scrolling back up until we stop...
+  After scroll up: lines 75 to 99
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 74 to 98
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 73 to 97
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 72 to 96
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 71 to 95
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 70 to 94
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 69 to 93
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 68 to 92
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 67 to 91
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 66 to 90
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 65 to 89
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 64 to 88
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 63 to 87
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 62 to 86
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 61 to 85
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 60 to 84
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 59 to 83
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 58 to 82
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 57 to 81
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 56 to 80
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 55 to 79
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 54 to 78
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 53 to 77
+  >>> FOUND EMPTY LINES IN VIEWPORT <<<
+  After scroll up: lines 52 to 76
+  After scroll up: lines 51 to 75
+  After scroll up: lines 50 to 74
+  After scroll up: lines 49 to 73
+  After scroll up: lines 48 to 72
+  After scroll up: lines 47 to 71
+  After scroll up: lines 46 to 70
+  After scroll up: lines 45 to 69
+  After scroll up: lines 44 to 68
+  After scroll up: lines 43 to 67
+  After scroll up: lines 42 to 66
+  After scroll up: lines 41 to 65
+  After scroll up: lines 40 to 64
+  After scroll up: lines 39 to 63
+  After scroll up: lines 38 to 62
+  After scroll up: lines 37 to 61
+  After scroll up: lines 36 to 60
+  After scroll up: lines 35 to 59
+  After scroll up: lines 34 to 58
+  After scroll up: lines 33 to 57
+  After scroll up: lines 32 to 56
+  After scroll up: lines 31 to 55
+  After scroll up: lines 30 to 54
+  After scroll up: lines 29 to 53
+  After scroll up: lines 28 to 52
+  After scroll up: lines 27 to 51
+  After scroll up: lines 26 to 50
+  After scroll up: lines 25 to 49
+  After scroll up: lines 24 to 48
+  After scroll up: lines 23 to 47
+  After scroll up: lines 22 to 46
+  After scroll up: lines 21 to 45
+  After scroll up: lines 20 to 44
+  After scroll up: lines 19 to 43
+  After scroll up: lines 18 to 42
+  After scroll up: lines 17 to 41
+  After scroll up: lines 16 to 40
+  After scroll up: lines 15 to 39
+  Stopped at line 15
+
+=== Results ===
+Scrolled up 61 times
+Final viewport: 15 to 39
+test_bug_scroll_regression.exe: <stdout>: commitBuffer: invalid argument (cannot encode character '\10007')
+HasCallStack backtrace:
+  collectBacktraces, called at libraries\ghc-internal\src\GHC\Internal\Exception.hs:169:13 in ghc-internal:GHC.Internal.Exception
+  toExceptionWithBacktrace, called at libraries\ghc-internal\src\GHC\Internal\IO.hs:260:11 in ghc-internal:GHC.Internal.IO
+  throwIO, called at libraries\ghc-internal\src\GHC\Internal\IO\Exception.hs:315:19 in ghc-internal:GHC.Internal.IO.Exception
+  ioException, called at libraries\ghc-internal\src\GHC\Internal\IO\Exception.hs:319:20 in ghc-internal:GHC.Internal.IO.Exception
+
+

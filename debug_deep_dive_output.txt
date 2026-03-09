@@ -1,0 +1,52 @@
+=== Deep Dive: Empty Lines Analysis ===
+
+1. Total lines in file:
+   0
+
+2. Getting lines 1-30 from start:
+   Received 30 lines
+
+   Content analysis:
+   1. Line 1 len=69 Timestamp	Process	TID	Area	Category	EventID	Level	
+   2. Line 2 len=223 02/22/2026 00:47:13.168	ONENOTE (0x9C94)	0x998	Mic
+   3. Line 3 len=243 02/22/2026 00:47:13.168	ONENOTE (0x9C94)	0x6930	Mi
+   4. Line 4 len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   5. Line 5 len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   6. Line 6 len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   7. Line 7 len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   8. Line 8 len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   9. Line 9 len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   10. Line 10 len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   11. Line 11 len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   12. Line 12 len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   13. Line 13 len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   14. Line 14 len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   15. Line 15 len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   16. Line 16 len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   17. Line 17 len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   18. Line 18 len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   19. Line 19 len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   20. Line 20 len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   21. Line 21 len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   22. Line 22 len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   23. Line 23 len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   24. Line 24 len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   25. Line 25 len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   26. Line 26 len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   27. Line 27 len=223 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   28. Line 28 len=242 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x998	Mic
+   29. Line 29 len=224 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+   30. Line 30 len=243 02/22/2026 00:47:13.169	ONENOTE (0x9C94)	0x6930	Mi
+
+3. Scrolling down and checking each new line:
+   Scroll 1: Got line 26 len=23
+   Scroll 2: Got line 27 len=0 *** EMPTY LINE RETURNED ***
+   Scroll 3: Got line 28 len=243
+   Scroll 4: Got line 29 len=0 *** EMPTY LINE RETURNED ***
+   Scroll 5: Got line 30 len=223
+   Scroll 6: Got line 31 len=0 *** EMPTY LINE RETURNED ***
+   Scroll 7: Got line 32 len=242
+   Scroll 8: Got line 33 len=0 *** EMPTY LINE RETURNED ***
+   Scroll 9: Got line 34 len=224
+
+Done.
