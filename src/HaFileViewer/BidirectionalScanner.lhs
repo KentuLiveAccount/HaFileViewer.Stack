@@ -376,6 +376,9 @@ For backward scans: ssOffset points to chunk END after reading, so subtract chun
 > calculatePieceOffsets startOffset pieces =
 >   let go _ [] = []
 >       go currentOffset (piece:rest) =
+>         -- BS.split excludes the delimiter (LF), but includes everything else (including CR)
+>         -- So piece length already includes CR if present
+>         -- We just need to add 1 for the excluded LF
 >         let nextOffset = currentOffset + fromIntegral (BS.length piece) + 1  -- +1 for LF
 >         in currentOffset : go nextOffset rest
 >   in go startOffset pieces
@@ -403,7 +406,9 @@ all offsets wrong by chunk size without this correction.
 >                            LeftPartial  -> ssOffset state  -- Forward: ssOffset is chunk start
 >                            RightPartial -> ssOffset state - offsetDelta  -- Backward: subtract to get start
 >       -- Calculate byte offsets for each raw piece (from chunk start)
->       rawPieceOffsets = calculatePieceOffsets chunkStartOffset rawPieces
+>       -- Note: pieces are BEFORE stripCR at this point (they still have CR if present)
+>       piecesBeforeStrip = BS.split lfByte canonicalChunk  -- Split before stripping
+>       rawPieceOffsets = calculatePieceOffsets chunkStartOffset piecesBeforeStrip
 >       -- Order pieces (reverse for backward)
 >       pieces = stratOrderPieces strat rawPieces
 >       -- Apply same ordering to offsets manually (reverse for backward, drop trailing if needed)
