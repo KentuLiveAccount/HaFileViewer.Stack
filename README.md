@@ -199,6 +199,26 @@ When a line spans multiple chunks, the FIRST chunk determines its offset:
 edgeLineOffset = partialOffset  -- Use partial's offset, not edge's!
 ```
 
+### CR-LF Line Ending Bug (Fixed)
+
+**Problem**: The `bottomOffset` calculation in LineCache used `+1` for all line endings, assuming Unix-style LF (`\n`). However, Windows files use CR-LF (`\r\n`), which requires 2 bytes.
+
+**Incorrect formula:**
+```haskell
+bottomOffset = offset + BS.length(text) + 1  -- Always adds 1 byte
+```
+
+**Impact**: On CR-LF files, this caused incremental scrolling to show alternating empty lines because the offset pointer would land inside the `\r\n` sequence instead of at the next line's start.
+
+**Solution**: Auto-detect line ending style on file open (scan first chunk for `\r\n` vs `\n`), store in LineCache state, and use the appropriate increment:
+```haskell
+lineEndingSize = 2  -- for CR-LF files
+lineEndingSize = 1  -- for LF-only files
+bottomOffset = offset + BS.length(text) + lineEndingSize
+```
+
+This ensures offset calculations match the actual file byte layout.
+
 ### UTF-8 Considerations
 
 - Offsets are **byte positions**, not character positions

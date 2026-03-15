@@ -59,6 +59,42 @@ spec = describe "CR-LF Regression Tests" $ do
         emptyLines `shouldBe` []
         
         closeLineCache cache
+  
+  describe "Scrolling from end (Bug #5)" $ do
+    it "should be able to read lines before the end" $
+      with50LineCRLFFile $ \path -> do
+        cache <- openLineCache path
+        
+        -- Jump to end, get last 25 lines (26-50)
+        (linesEnd, _, _) <- getLinesFromEnd cache 25
+        length linesEnd `shouldBe` 25
+        let lastLineText = fst (last linesEnd)
+        lastLineText `shouldBe` "Line 50 has content"
+        let firstLineText = fst (head linesEnd)
+        firstLineText `shouldBe` "Line 26 has content"
+        
+        closeLineCache cache
+  
+  describe "Scroll reversibility (Bug #6)" $ do
+    it "should be able to read consecutive ranges incrementally" $
+      with50LineCRLFFile $ \path -> do
+        cache <- openLineCache path
+        
+        -- Read lines 1-10
+        (lines1, _, bot1) <- getLinesFromStart cache 10
+        let firstLine1 = fst (head lines1)
+        firstLine1 `shouldBe` "Line 1 has content"
+        let lastLine1 = fst (last lines1)
+        lastLine1 `shouldBe` "Line 10 has content"
+        
+        -- Read lines 11-20 from bottom position
+        (lines2, _, _) <- getLinesFrom cache bot1 Forward 10 11
+        let firstLine2 = fst (head lines2)
+        firstLine2 `shouldBe` "Line 11 has content"
+        let lastLine2 = fst (last lines2)
+        lastLine2 `shouldBe` "Line 20 has content"
+        
+        closeLineCache cache
 
 testLines :: [String]
 testLines = ["Line 1 content", "Line 2 longer text", "Line 3 short"]
