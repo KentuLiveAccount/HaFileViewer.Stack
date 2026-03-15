@@ -27,3 +27,6 @@ cabal.project.local~
 test*.txt
 debug*.txt
 *_output.txt
+
+# Large test files
+*.log
