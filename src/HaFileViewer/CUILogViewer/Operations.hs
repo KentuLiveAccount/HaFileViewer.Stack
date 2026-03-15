@@ -297,10 +297,15 @@ resizeViewport vs newSize = do
     then return vs
     else do
       -- Reload viewport from current position with new size
+      -- Preserve scroll direction based on current origin
       let startLineNum = cursorFirstLine cursor
+          scrollDirection = case cursorOrigin cursor of
+            FromStart -> Forward
+            FromEnd   -> Backward
+      
       (newLines, topPos, bottomPos) <- getLinesFrom cache 
                                          (cursorTopPosition cursor) 
-                                         Forward
+                                         scrollDirection
                                          newSize 
                                          startLineNum
       
@@ -309,7 +314,8 @@ resizeViewport vs newSize = do
         else do
           -- Swap tuple order
           let swappedLines = [(lineNum, text) | (text, lineNum) <- newLines]
-              newLastLine = cursorFirstLine cursor + fromIntegral (length newLines) - 1
+              actualSize = length newLines  -- Actual lines received (might be < newSize at EOF)
+              newLastLine = cursorFirstLine cursor + fromIntegral actualSize - 1
           
           -- Update cursor and viewport with new size
           let newCursor = cursor
@@ -320,5 +326,5 @@ resizeViewport vs newSize = do
           
           return vs { vsViewport = swappedLines
                     , vsCursor = newCursor
-                    , vsViewportSize = newSize
+                    , vsViewportSize = newSize  -- Desired size (UI will pad if needed)
                     }
