@@ -21,3 +21,9 @@ cabal.project.local
 cabal.project.local~
 .HTF/
 .ghc.environment.*
+
+# Test executables and outputs
+*.exe
+test*.txt
+debug*.txt
+*_output.txt
