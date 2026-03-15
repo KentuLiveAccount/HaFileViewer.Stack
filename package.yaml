@@ -57,9 +57,10 @@ tests:
       - brick >= 2.0
       - vty
 
-  ha-file-viewer-test3:
-    main: Spec.hs
-    source-dirs: test3
+  bidirectional-scanner-test:
+    main: BidirectionalScanner.hs
+    source-dirs: src/HaFileViewer/Backend/Test
+    other-modules: []
     ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
     dependencies:
       - ha-file-viewer
@@ -71,9 +72,10 @@ tests:
       - bytestring
       - mmap
 
-  ha-file-viewer-test4:
-    main: Spec.hs
-    source-dirs: test4
+  linecache-test:
+    main: LineCache.hs
+    source-dirs: src/HaFileViewer/Backend/Test
+    other-modules: []
     ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
     dependencies:
       - ha-file-viewer
