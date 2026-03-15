@@ -6,10 +6,13 @@ extra-source-files: []
 
 library:
   exposed-modules: 
-    - HaFileViewer.BidirectionalScanner
-    - HaFileViewer.LineCache
+    - HaFileViewer.Backend.BidirectionalScanner
+    - HaFileViewer.Backend.LineCache
+    - HaFileViewer.Backend.Types
+    - HaFileViewer.Backend.SparseIndex
     - HaFileViewer.CUILogViewer.ViewState
     - HaFileViewer.CUILogViewer.Operations
+  other-modules: []  # Don't auto-discover
   source-dirs: src
   ghc-options: -Wall
   dependencies:
@@ -28,7 +31,8 @@ library:
 executables:
   cui-log-viewer:
     main: Main.hs
-    source-dirs: app/CUILogViewer
+    source-dirs: src/HaFileViewer/CUILogViewer
+    other-modules: []  # Only Main.hs
     ghc-options: -threaded -rtsopts -with-rtsopts=-N
     dependencies:
       - ha-file-viewer
@@ -41,10 +45,9 @@ executables:
 
 tests:
   ui-systematic-test:
-    main: test_ui_systematic.hs
-    source-dirs:
-      - app/CUILogViewer/Test
-      - app/CUILogViewer
+    main: Systematic.hs
+    source-dirs: src/HaFileViewer/CUILogViewer/Test
+    other-modules: []  # Only Systematic.hs
     ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
     dependencies:
       - ha-file-viewer

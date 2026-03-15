@@ -7,8 +7,8 @@ import System.IO.Temp (withSystemTempFile)
 import System.IO
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
-import HaFileViewer.LineCache
-import HaFileViewer.BidirectionalScanner (Direction(..))
+import HaFileViewer.Backend.LineCache
+import HaFileViewer.Backend.BidirectionalScanner (Direction(..))
 import Control.Monad (forM_)
 
 main :: IO ()

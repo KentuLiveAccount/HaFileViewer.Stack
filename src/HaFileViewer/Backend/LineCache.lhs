@@ -25,7 +25,7 @@ Performance Characteristics:
 - Memory: O(cache size) for content + O(lines/granularity) for sparse index
 - Large files (100MB+): Fast random access, bounded memory usage
 
-> module HaFileViewer.LineCache
+> module HaFileViewer.Backend.LineCache
 >   ( -- * Types
 >     LineCache
 >   , CacheConfig(..)
@@ -77,10 +77,10 @@ Performance Characteristics:
 > import Control.Exception (bracket)
 > import Control.Monad (when, forM_)
 > 
-> import HaFileViewer.BidirectionalScanner 
+> import HaFileViewer.Backend.BidirectionalScanner 
 >   ( scanLines, scanLinesWithOffsets, Direction(..) )
-> import HaFileViewer.LineMap.Common (Offset)
-> import qualified HaFileViewer.Internal.SparseIndex as SI
+> import HaFileViewer.Backend.Types (Offset)
+> import qualified HaFileViewer.Backend.SparseIndex as SI
 
 > -- | Origin point for line numbering (where did we start?)
 > data ScanOrigin = FromStart | FromEnd

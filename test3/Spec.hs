@@ -6,7 +6,7 @@ import System.IO.Temp (withSystemTempFile)
 import System.IO (hPutStr, hClose, Handle)
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
-import HaFileViewer.BidirectionalScanner
+import HaFileViewer.Backend.BidirectionalScanner
 import System.IO.MMap (mmapFileByteString)
 
 -- Helper to read from file using mmap

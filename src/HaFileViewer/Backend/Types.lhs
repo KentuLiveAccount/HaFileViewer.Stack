@@ -1,15 +1,14 @@
-Common Utilities for LineMap Implementations
-============================================
+Backend Types and Utilities
+============================
 
-This module contains shared utilities used by both LineMap and LineMap2
-implementations, including text processing, memory-mapped file access,
-and common constants.
+This module contains shared types and utilities used across the backend
+file I/O layer, including the BidirectionalScanner, LineCache, and SparseIndex.
 
 Module Header
 -------------
 
 > {-# LANGUAGE OverloadedStrings #-}
-> module HaFileViewer.LineMap.Common
+> module HaFileViewer.Backend.Types
 >   ( Offset
 >   , lfByte
 >   , normalizeLine

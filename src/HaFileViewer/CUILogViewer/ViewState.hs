@@ -10,7 +10,7 @@ module HaFileViewer.CUILogViewer.ViewState
   ) where
 
 import qualified Data.Text as T
-import HaFileViewer.LineCache (LineCache, LinePosition, ScanOrigin(..))
+import HaFileViewer.Backend.LineCache (LineCache, LinePosition, ScanOrigin(..))
 
 -- | Cursor tracking position in file with two-position tracking for bidirectional scrolling
 data ViewCursor = ViewCursor

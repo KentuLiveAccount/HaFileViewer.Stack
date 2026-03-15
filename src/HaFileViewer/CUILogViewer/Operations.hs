@@ -15,8 +15,8 @@ module HaFileViewer.CUILogViewer.Operations
 
 import qualified Data.Text as T
 import HaFileViewer.CUILogViewer.ViewState
-import HaFileViewer.LineCache
-import HaFileViewer.BidirectionalScanner (Direction(..))
+import HaFileViewer.Backend.LineCache
+import HaFileViewer.Backend.BidirectionalScanner (Direction(..))
 
 -- | Initialize viewer state from a file
 initializeViewer :: FilePath -> Int -> IO ViewState

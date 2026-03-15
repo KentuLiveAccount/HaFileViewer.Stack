@@ -7,9 +7,9 @@
 module Main where
 
 import qualified Data.Text as T
-import HaFileViewer.LineCache
+import HaFileViewer.Backend.LineCache
 import HaFileViewer.CUILogViewer.ViewState
-import HaFileViewer.BidirectionalScanner (Direction(..))
+import HaFileViewer.Backend.BidirectionalScanner (Direction(..))
 import System.IO (writeFile)
 import System.Directory (removeFile, getCurrentDirectory, setCurrentDirectory)
 import Control.Exception (bracket)

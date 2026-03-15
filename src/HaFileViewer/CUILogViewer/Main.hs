@@ -9,7 +9,7 @@ import Brick.Widgets.Border (hBorder, hBorderWithLabel)
 import qualified Graphics.Vty as V
 import qualified Data.Text as T
 import HaFileViewer.CUILogViewer.ViewState
-import HaFileViewer.LineCache
+import HaFileViewer.Backend.LineCache
 import System.Environment (getArgs)
 import System.Directory (doesFileExist)
 import Control.Monad.IO.Class (liftIO)

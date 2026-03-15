@@ -46,7 +46,7 @@ Module Header
 
 > {-# LANGUAGE OverloadedStrings #-}
 > {-# LANGUAGE RankNTypes #-}
-> module HaFileViewer.BidirectionalScanner
+> module HaFileViewer.Backend.BidirectionalScanner
 >   ( Direction(..)
 >   , scanLines
 >   , scanLinesWithOffsets
@@ -58,7 +58,7 @@ Module Header
 > import qualified Data.Text as T
 > import qualified Data.Text.Encoding as TE
 > import Data.Word (Word8)
-> import HaFileViewer.LineMap.Common
+> import HaFileViewer.Backend.Types
 >   ( Offset
 >   , lfByte
 >   , normalizeLine

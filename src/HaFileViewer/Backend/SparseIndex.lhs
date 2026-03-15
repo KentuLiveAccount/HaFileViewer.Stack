@@ -7,7 +7,7 @@ seeking, storing only every Kth line (default K=1024).
 
 This is an internal implementation detail used by LineCache.
 
-> module HaFileViewer.Internal.SparseIndex
+> module HaFileViewer.Backend.SparseIndex
 >   ( -- * Types
 >     SparseIndex
 >   , IndexStep
@@ -37,7 +37,7 @@ This is an internal implementation detail used by LineCache.
 
 > import Prelude hiding (lookup)
 > import qualified Data.Map.Strict as Map
-> import HaFileViewer.LineMap.Common (Offset)
+> import HaFileViewer.Backend.Types (Offset)
 
 Type Definitions
 ----------------
