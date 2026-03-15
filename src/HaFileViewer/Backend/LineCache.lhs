@@ -434,10 +434,12 @@ along with content, and an opaque position marker for resuming reads.
 >   
 >   -- Calculate line numbers for the returned lines
 >   -- The caller tells us the starting line number via startLineNum parameter
+>   -- For backward scans, texts are in file order, so line numbers must be too
 >   let lineNumbers = case dir of
 >         Forward  -> [startLineNum .. startLineNum + fromIntegral count - 1]
->         Backward -> reverse [startLineNum - fromIntegral count + 1 .. startLineNum]
->       result = zip (map fst adjustedLines) lineNumbers
+>         Backward -> [startLineNum - fromIntegral count + 1 .. startLineNum]
+>       texts = map fst adjustedLines
+>       result = zip texts lineNumbers
 >   
 >   -- Update sparse index
 >   let indexStep = lcIndexStep lc

@@ -405,6 +405,28 @@ main = bracket
     runTest "18. Up at start does nothing" testUpAtStartDoesNothing
     runTest "19. Down at end does nothing" testDownAtEndDoesNothing
     runTest "20. Arrow keys work after jump to end" testArrowKeysAfterJumpToEnd
+    runTest "21. Page down 2x then page up 2x returns to start" testPageNavigation
     
     putStrLn "\n================================"
   )
+
+-- Test page navigation reversibility (Bug found: page down 2x, page up 2x shows line 50)
+testPageNavigation :: IO Bool
+testPageNavigation = do
+  vs0 <- initializeViewer
+  let (init_first, init_last, _) = getViewportInfo vs0
+  
+  -- Page down twice
+  vs1 <- Ops.pageDown vs0
+  vs2 <- Ops.pageDown vs1
+  let (after_down_first, after_down_last, _) = getViewportInfo vs2
+  
+  -- Page up twice - should return to lines 1-25
+  vs3 <- Ops.pageUp vs2
+  vs4 <- Ops.pageUp vs3
+  let (final_first, final_last, _) = getViewportInfo vs4
+  
+  closeLineCache (vsCache vs4)
+  
+  -- Should be back at initial position
+  return $ final_first == init_first && final_last == init_last
