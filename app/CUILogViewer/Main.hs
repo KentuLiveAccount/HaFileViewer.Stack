@@ -10,10 +10,11 @@ import qualified Graphics.Vty as V
 import qualified Data.Text as T
 import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.LineCache
-import System.Environment (getArgs)
+import System.Environment (getArgs, lookupEnv)
 import System.Directory (doesFileExist)
 import Control.Monad.IO.Class (liftIO)
 import qualified HaFileViewer.CUILogViewer.Operations as Ops
+import Text.Read (readMaybe)
 
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)
@@ -140,10 +141,31 @@ main = do
         then runViewer filepath
         else putStrLn $ "Error: File not found: " ++ filepath
 
+-- | Get current terminal height
+-- Uses LINES environment variable or defaults to 24
+getTerminalHeight :: IO Int
+getTerminalHeight = do
+  mLines <- lookupEnv "LINES"
+  case mLines >>= readMaybe of
+    Just n | n > 0 -> return n
+    _ -> return 24  -- Default terminal height
+
+-- | Calculate viewport size from terminal height
+-- Subtracts UI chrome (borders + status bar) and ensures minimum size
+calculateViewportSize :: Int -> Int
+calculateViewportSize termHeight =
+  let uiChrome = 3  -- Top border + bottom border + status bar
+      contentHeight = termHeight - uiChrome
+  in max 5 contentHeight  -- Minimum 5 lines for usability
+
 runViewer :: FilePath -> IO ()
 runViewer filepath = do
+  -- Query actual terminal height
+  height <- getTerminalHeight
+  let viewportHeight = calculateViewportSize height
+  
   -- Initialize viewer using Operations module
-  initialState <- Ops.initializeViewer filepath 25
+  initialState <- Ops.initializeViewer filepath viewportHeight
   
   -- Run brick app
   _ <- defaultMain app initialState
