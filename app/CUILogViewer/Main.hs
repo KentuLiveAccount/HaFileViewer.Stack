@@ -119,6 +119,17 @@ handleEvent (VtyEvent (V.EvKey (V.KChar 'G') [])) = do
   vs' <- liftIO (Ops.jumpToEnd vs)
   put vs'
 
+-- Handle terminal resize
+handleEvent (VtyEvent (V.EvResize width height)) = do
+  vs <- get
+  let uiChrome = 3  -- Top border + bottom border + status bar
+      newViewportSize = max 5 (height - uiChrome)
+  
+  -- Only resize if size actually changed
+  when (vsViewportSize vs /= newViewportSize) $ do
+    vs' <- liftIO $ Ops.resizeViewport vs newViewportSize
+    put vs'
+
 handleEvent _ = return ()
 
 -- Brick app definition
