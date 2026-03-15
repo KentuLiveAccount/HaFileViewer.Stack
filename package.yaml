@@ -43,7 +43,7 @@ tests:
   ui-systematic-test:
     main: test_ui_systematic.hs
     source-dirs:
-      - .
+      - app/CUILogViewer/Test
       - app/CUILogViewer
     ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
     dependencies:
