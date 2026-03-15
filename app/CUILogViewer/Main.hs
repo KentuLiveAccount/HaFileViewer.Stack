@@ -4,17 +4,18 @@ module Main where
 
 import Brick
 import Brick.Main (App(..), defaultMain, halt)
-import Brick.Types (BrickEvent(..), EventM)
+import Brick.Types (BrickEvent(..), EventM, Context, availHeightL)
 import Brick.Widgets.Border (hBorder, hBorderWithLabel)
 import qualified Graphics.Vty as V
 import qualified Data.Text as T
 import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.LineCache
-import System.Environment (getArgs, lookupEnv)
+import System.Environment (getArgs)
 import System.Directory (doesFileExist)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad (when)
 import qualified HaFileViewer.CUILogViewer.Operations as Ops
-import Text.Read (readMaybe)
+import Lens.Micro ((^.))
 
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)
@@ -141,33 +142,15 @@ main = do
         then runViewer filepath
         else putStrLn $ "Error: File not found: " ++ filepath
 
--- | Get current terminal height
--- Uses LINES environment variable or defaults to 24
-getTerminalHeight :: IO Int
-getTerminalHeight = do
-  mLines <- lookupEnv "LINES"
-  case mLines >>= readMaybe of
-    Just n | n > 0 -> return n
-    _ -> return 24  -- Default terminal height
-
--- | Calculate viewport size from terminal height
--- Subtracts UI chrome (borders + status bar) and ensures minimum size
-calculateViewportSize :: Int -> Int
-calculateViewportSize termHeight =
-  let uiChrome = 3  -- Top border + bottom border + status bar
-      contentHeight = termHeight - uiChrome
-  in max 5 contentHeight  -- Minimum 5 lines for usability
-
 runViewer :: FilePath -> IO ()
 runViewer filepath = do
-  -- Query actual terminal height
-  height <- getTerminalHeight
-  let viewportHeight = calculateViewportSize height
+  -- Start with a reasonable default (will be resized by Brick on startup)
+  let initialViewportSize = 21  -- Reasonable default for 24-line terminal
   
   -- Initialize viewer using Operations module
-  initialState <- Ops.initializeViewer filepath viewportHeight
+  initialState <- Ops.initializeViewer filepath initialViewportSize
   
-  -- Run brick app
+  -- Run brick app (appStartEvent will resize based on actual terminal)
   _ <- defaultMain app initialState
   
   -- Clean up

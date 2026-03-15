@@ -37,6 +37,7 @@ executables:
       - brick >= 2.0
       - vty
       - directory
+      - microlens
 
 tests:
   ui-systematic-test:

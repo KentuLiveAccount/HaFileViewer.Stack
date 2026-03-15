@@ -50,6 +50,7 @@ executable cui-log-viewer
     , brick >=2.0
     , directory
     , ha-file-viewer
+    , microlens
     , text
     , vty
   default-language: Haskell2010

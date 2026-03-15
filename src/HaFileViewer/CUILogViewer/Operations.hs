@@ -10,6 +10,7 @@ module HaFileViewer.CUILogViewer.Operations
   , jumpToStart
   , jumpToEnd
   , initializeViewer
+  , resizeViewport
   ) where
 
 import qualified Data.Text as T
@@ -283,3 +284,41 @@ jumpToEnd vs = do
       return vs { vsViewport = swappedLines
                 , vsCursor = newCursor
                 }
+
+-- | Resize viewport to new height, preserving current scroll position
+resizeViewport :: ViewState -> Int -> IO ViewState
+resizeViewport vs newSize = do
+  let cache = vsCache vs
+      cursor = vsCursor vs
+      currentSize = vsViewportSize vs
+  
+  -- If size didn't change, do nothing
+  if newSize == currentSize
+    then return vs
+    else do
+      -- Reload viewport from current position with new size
+      let startLineNum = cursorFirstLine cursor
+      (newLines, topPos, bottomPos) <- getLinesFrom cache 
+                                         (cursorTopPosition cursor) 
+                                         Forward
+                                         newSize 
+                                         startLineNum
+      
+      if null newLines
+        then return vs  -- Keep old viewport if reload fails
+        else do
+          -- Swap tuple order
+          let swappedLines = [(lineNum, text) | (text, lineNum) <- newLines]
+              newLastLine = cursorFirstLine cursor + fromIntegral (length newLines) - 1
+          
+          -- Update cursor and viewport with new size
+          let newCursor = cursor
+                { cursorTopPosition = topPos
+                , cursorBottomPosition = bottomPos
+                , cursorLastLine = newLastLine
+                }
+          
+          return vs { vsViewport = swappedLines
+                    , vsCursor = newCursor
+                    , vsViewportSize = newSize
+                    }
