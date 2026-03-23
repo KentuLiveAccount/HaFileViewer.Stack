@@ -72,11 +72,8 @@ pageDown vs = do
   if null (vsViewport vs)
     then return vs
     else do
-      (nextPage, topPos, bottomPos) <- getLinesFrom (vsCache vs)
-                                         (cursorBottomPosition cursor)
-                                         Forward (vsViewportSize vs)
-                                         (cursorLastLine cursor + 1)
-      return $ applyLoad Nothing nextPage topPos bottomPos vs
+      applyLoad Nothing vs <$>
+        getLinesFrom (vsCache vs) (cursorBottomPosition cursor) Forward (vsViewportSize vs) (cursorLastLine cursor + 1)
 
 -- | Page up (scroll backward by viewport size)
 pageUp :: ViewState -> IO ViewState
@@ -90,23 +87,18 @@ pageUp vs = do
       if cursorOrigin cursor == FromStart && firstLineNum <= 1
         then return vs
         else do
-          (prevPage, topPos, bottomPos) <- getLinesFrom (vsCache vs)
-                                             (cursorTopPosition cursor)
-                                             Backward (vsViewportSize vs)
-                                             (cursorFirstLine cursor - 1)
-          return $ applyLoad Nothing prevPage topPos bottomPos vs
+          applyLoad Nothing vs <$>
+            getLinesFrom (vsCache vs) (cursorTopPosition cursor) Backward (vsViewportSize vs) (cursorFirstLine cursor - 1)
 
 -- | Jump to start of file
 jumpToStart :: ViewState -> IO ViewState
-jumpToStart vs = do
-  (lines, topPos, bottomPos) <- getLinesFromStart (vsCache vs) (vsViewportSize vs)
-  return $ applyLoad (Just (lpOrigin topPos)) lines topPos bottomPos vs
+jumpToStart vs =
+  applyLoad (Just FromStart) vs <$> getLinesFromStart (vsCache vs) (vsViewportSize vs)
 
 -- | Jump to end of file
 jumpToEnd :: ViewState -> IO ViewState
-jumpToEnd vs = do
-  (lines, topPos, bottomPos) <- getLinesFromEnd (vsCache vs) (vsViewportSize vs)
-  return $ applyLoad (Just (lpOrigin topPos)) lines topPos bottomPos vs
+jumpToEnd vs =
+  applyLoad (Just FromEnd) vs <$> getLinesFromEnd (vsCache vs) (vsViewportSize vs)
 
 -- | Resize viewport to new height, preserving current scroll position
 resizeViewport :: ViewState -> Int -> IO ViewState
@@ -118,10 +110,6 @@ resizeViewport vs newSize = do
       let scrollDirection = case cursorOrigin cursor of
             FromStart -> Forward
             FromEnd   -> Backward
-      (newLines, topPos, bottomPos) <- getLinesFrom (vsCache vs)
-                                         (cursorTopPosition cursor)
-                                         scrollDirection newSize
-                                         (cursorFirstLine cursor)
-      return $ applyLoad Nothing newLines topPos bottomPos
-                 vs { vsViewportSize = newSize }
+      applyLoad Nothing vs { vsViewportSize = newSize } <$>
+        getLinesFrom (vsCache vs) (cursorTopPosition cursor) scrollDirection newSize (cursorFirstLine cursor)
 
