@@ -43,73 +43,87 @@ initializeViewer filepath viewportSize = do
 
 -- | Scroll down by one line
 scrollDown :: ViewState -> IO ViewState
-scrollDown vs
-  | null viewport || (cursorOrigin cursor == FromEnd && cursorLastLine cursor == -1) = return vs
+scrollDown vs@ViewState
+    { vsCursor   = ViewCursor{ cursorOrigin       = origin
+                              , cursorLastLine     = lastLine
+                              , cursorBottomPosition = botPos }
+    , vsViewport = viewport
+    , vsCache    = cache }
+  | null viewport || (origin == FromEnd && lastLine == -1) = return vs
   | otherwise =
       applyScrollDown vs <$>
-        getLinesFrom (vsCache vs) (cursorBottomPosition cursor) Forward 1 (cursorLastLine cursor + 1)
-  where
-    cursor   = vsCursor vs
-    viewport = vsViewport vs
+        getLinesFrom cache botPos Forward 1 (lastLine + 1)
 
 -- | Scroll up by one line
 scrollUp :: ViewState -> IO ViewState
-scrollUp vs
-  | null viewport                                         = return vs
-  | cursorOrigin cursor == FromStart && firstLineNum <= 1 = return vs
+scrollUp vs@ViewState
+    { vsCursor   = ViewCursor{ cursorOrigin      = origin
+                              , cursorFirstLine   = firstLine
+                              , cursorTopPosition = topPos }
+    , vsViewport = viewport
+    , vsCache    = cache }
+  | null viewport                                    = return vs
+  | origin == FromStart && firstLineNum <= 1         = return vs
   | otherwise =
       applyScrollUp vs <$>
-        getLinesFrom (vsCache vs) (cursorTopPosition cursor) Backward 1 (cursorFirstLine cursor - 1)
+        getLinesFrom cache topPos Backward 1 (firstLine - 1)
   where
-    cursor            = vsCursor vs
-    viewport          = vsViewport vs
     (firstLineNum, _) = head viewport
 
 -- | Page down (scroll forward by viewport size)
 pageDown :: ViewState -> IO ViewState
-pageDown vs = do
-  let cursor = vsCursor vs
-  if null (vsViewport vs)
-    then return vs
-    else do
+pageDown vs@ViewState
+    { vsCursor       = ViewCursor{ cursorBottomPosition = botPos
+                                 , cursorLastLine       = lastLine }
+    , vsViewport     = viewport
+    , vsCache        = cache
+    , vsViewportSize = size }
+  | null viewport = return vs
+  | otherwise =
       applyLoad Nothing vs <$>
-        getLinesFrom (vsCache vs) (cursorBottomPosition cursor) Forward (vsViewportSize vs) (cursorLastLine cursor + 1)
+        getLinesFrom cache botPos Forward size (lastLine + 1)
 
 -- | Page up (scroll backward by viewport size)
 pageUp :: ViewState -> IO ViewState
-pageUp vs = do
-  let cursor = vsCursor vs
-      viewport = vsViewport vs
-  if null viewport
-    then return vs
-    else do
-      let (firstLineNum, _) = head viewport
-      if cursorOrigin cursor == FromStart && firstLineNum <= 1
-        then return vs
-        else do
-          applyLoad Nothing vs <$>
-            getLinesFrom (vsCache vs) (cursorTopPosition cursor) Backward (vsViewportSize vs) (cursorFirstLine cursor - 1)
+pageUp vs@ViewState
+    { vsCursor       = ViewCursor{ cursorOrigin    = origin
+                                 , cursorFirstLine = firstLine
+                                 , cursorTopPosition = topPos }
+    , vsViewport     = viewport
+    , vsCache        = cache
+    , vsViewportSize = size }
+  | null viewport                                = return vs
+  | origin == FromStart && firstLineNum <= 1     = return vs
+  | otherwise =
+      applyLoad Nothing vs <$>
+        getLinesFrom cache topPos Backward size (firstLine - 1)
+  where
+    (firstLineNum, _) = head viewport
 
 -- | Jump to start of file
 jumpToStart :: ViewState -> IO ViewState
-jumpToStart vs =
-  applyLoad (Just FromStart) vs <$> getLinesFromStart (vsCache vs) (vsViewportSize vs)
+jumpToStart vs@ViewState{ vsCache = cache, vsViewportSize = size } =
+  applyLoad (Just FromStart) vs <$> getLinesFromStart cache size
 
 -- | Jump to end of file
 jumpToEnd :: ViewState -> IO ViewState
-jumpToEnd vs =
-  applyLoad (Just FromEnd) vs <$> getLinesFromEnd (vsCache vs) (vsViewportSize vs)
+jumpToEnd vs@ViewState{ vsCache = cache, vsViewportSize = size } =
+  applyLoad (Just FromEnd) vs <$> getLinesFromEnd cache size
 
 -- | Resize viewport to new height, preserving current scroll position
 resizeViewport :: ViewState -> Int -> IO ViewState
-resizeViewport vs newSize = do
-  let cursor = vsCursor vs
-  if newSize == vsViewportSize vs
-    then return vs
-    else do
-      let scrollDirection = case cursorOrigin cursor of
-            FromStart -> Forward
-            FromEnd   -> Backward
+resizeViewport vs@ViewState
+    { vsCursor       = ViewCursor{ cursorOrigin    = origin
+                                 , cursorTopPosition = topPos
+                                 , cursorFirstLine   = firstLine }
+    , vsCache        = cache
+    , vsViewportSize = oldSize } newSize
+  | newSize == oldSize = return vs
+  | otherwise =
       applyLoad Nothing vs { vsViewportSize = newSize } <$>
-        getLinesFrom (vsCache vs) (cursorTopPosition cursor) scrollDirection newSize (cursorFirstLine cursor)
+        getLinesFrom cache topPos scrollDirection newSize firstLine
+  where
+    scrollDirection = case origin of
+      FromStart -> Forward
+      FromEnd   -> Backward
 
