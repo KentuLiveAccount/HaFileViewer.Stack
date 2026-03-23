@@ -43,35 +43,27 @@ initializeViewer filepath viewportSize = do
 
 -- | Scroll down by one line
 scrollDown :: ViewState -> IO ViewState
-scrollDown vs = do
-  let cursor = vsCursor vs
-      viewport = vsViewport vs
-  if null viewport || (cursorOrigin cursor == FromEnd && cursorLastLine cursor == -1)
-    then return vs
-    else do
-      (moreLines, topPos, bottomPos) <- getLinesFrom (vsCache vs)
-                                          (cursorBottomPosition cursor)
-                                          Forward 1
-                                          (cursorLastLine cursor + 1)
-      return $ applyScrollDown moreLines topPos bottomPos vs
+scrollDown vs
+  | null viewport || (cursorOrigin cursor == FromEnd && cursorLastLine cursor == -1) = return vs
+  | otherwise =
+      applyScrollDown vs <$>
+        getLinesFrom (vsCache vs) (cursorBottomPosition cursor) Forward 1 (cursorLastLine cursor + 1)
+  where
+    cursor   = vsCursor vs
+    viewport = vsViewport vs
 
 -- | Scroll up by one line
 scrollUp :: ViewState -> IO ViewState
-scrollUp vs = do
-  let cursor = vsCursor vs
-      viewport = vsViewport vs
-  if null viewport
-    then return vs
-    else do
-      let (firstLineNum, _) = head viewport
-      if cursorOrigin cursor == FromStart && firstLineNum <= 1
-        then return vs
-        else do
-          (prevLines, topPos, bottomPos) <- getLinesFrom (vsCache vs)
-                                              (cursorTopPosition cursor)
-                                              Backward 1
-                                              (cursorFirstLine cursor - 1)
-          return $ applyScrollUp prevLines topPos bottomPos vs
+scrollUp vs
+  | null viewport                                         = return vs
+  | cursorOrigin cursor == FromStart && firstLineNum <= 1 = return vs
+  | otherwise =
+      applyScrollUp vs <$>
+        getLinesFrom (vsCache vs) (cursorTopPosition cursor) Backward 1 (cursorFirstLine cursor - 1)
+  where
+    cursor            = vsCursor vs
+    viewport          = vsViewport vs
+    (firstLineNum, _) = head viewport
 
 -- | Page down (scroll forward by viewport size)
 pageDown :: ViewState -> IO ViewState

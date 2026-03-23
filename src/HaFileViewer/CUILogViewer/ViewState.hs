@@ -77,24 +77,20 @@ applyShift newViewport topPos botPos vs =
   in vs { vsViewport = newViewport, vsCursor = newCursor }
 
 -- | Scroll down by one line, handling empty result (EOF) as no-op.
-applyScrollDown :: [LineWithNumber]  -- ^ Lines from cache (empty = EOF, no-op)
-                -> LinePosition
-                -> LinePosition
+applyScrollDown :: ViewState
+                -> ([LineWithNumber], LinePosition, LinePosition)  -- ^ Cache result (empty lines = EOF, no-op)
                 -> ViewState
-                -> ViewState
-applyScrollDown []          _      _      vs = vs
-applyScrollDown (newLine:_) topPos botPos vs =
-  applyShift (shiftViewportDown (vsViewport vs) newLine (vsViewportSize vs)) topPos botPos vs
+applyScrollDown vs ([], _, _)            = vs
+applyScrollDown vs (newLine:_, top, bot) =
+  applyShift (shiftViewportDown (vsViewport vs) newLine (vsViewportSize vs)) top bot vs
 
 -- | Scroll up by one line, handling empty result (BOF) as no-op.
-applyScrollUp :: [LineWithNumber]  -- ^ Lines from cache (empty = BOF, no-op)
-              -> LinePosition
-              -> LinePosition
+applyScrollUp :: ViewState
+              -> ([LineWithNumber], LinePosition, LinePosition)  -- ^ Cache result (empty lines = BOF, no-op)
               -> ViewState
-              -> ViewState
-applyScrollUp []          _      _      vs = vs
-applyScrollUp (newLine:_) topPos botPos vs =
-  applyShift (shiftViewportUp newLine (vsViewport vs) (vsViewportSize vs)) topPos botPos vs
+applyScrollUp vs ([], _, _)            = vs
+applyScrollUp vs (newLine:_, top, bot) =
+  applyShift (shiftViewportUp newLine (vsViewport vs) (vsViewportSize vs)) top bot vs
 
 -- Shift viewport down by removing first line and adding new line at end
 shiftViewportDown :: [LineWithNumber] -> LineWithNumber -> Int -> [LineWithNumber]
