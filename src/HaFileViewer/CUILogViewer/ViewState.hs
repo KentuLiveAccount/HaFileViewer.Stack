@@ -5,9 +5,9 @@ module HaFileViewer.CUILogViewer.ViewState
   , LineWithNumber
     
     -- * Functions
-  , shiftViewportDown
-  , shiftViewportUp
   , applyLoad
+  , applyScrollDown
+  , applyScrollUp
   , applyShift
   ) where
 
@@ -76,12 +76,32 @@ applyShift newViewport topPos botPos vs =
         }
   in vs { vsViewport = newViewport, vsCursor = newCursor }
 
--- | Shift viewport down by removing first line and adding new line at end
+-- | Scroll down by one line, handling empty result (EOF) as no-op.
+applyScrollDown :: [LineWithNumber]  -- ^ Lines from cache (empty = EOF, no-op)
+                -> LinePosition
+                -> LinePosition
+                -> ViewState
+                -> ViewState
+applyScrollDown []          _      _      vs = vs
+applyScrollDown (newLine:_) topPos botPos vs =
+  applyShift (shiftViewportDown (vsViewport vs) newLine (vsViewportSize vs)) topPos botPos vs
+
+-- | Scroll up by one line, handling empty result (BOF) as no-op.
+applyScrollUp :: [LineWithNumber]  -- ^ Lines from cache (empty = BOF, no-op)
+              -> LinePosition
+              -> LinePosition
+              -> ViewState
+              -> ViewState
+applyScrollUp []          _      _      vs = vs
+applyScrollUp (newLine:_) topPos botPos vs =
+  applyShift (shiftViewportUp newLine (vsViewport vs) (vsViewportSize vs)) topPos botPos vs
+
+-- Shift viewport down by removing first line and adding new line at end
 shiftViewportDown :: [LineWithNumber] -> LineWithNumber -> Int -> [LineWithNumber]
-shiftViewportDown viewport newLine maxSize = 
+shiftViewportDown viewport newLine maxSize =
   take maxSize (drop 1 viewport ++ [newLine])
 
--- | Shift viewport up by adding new line at start and removing last line
+-- Shift viewport up by adding new line at start and removing last line
 shiftViewportUp :: LineWithNumber -> [LineWithNumber] -> Int -> [LineWithNumber]
 shiftViewportUp newLine viewport maxSize =
   take maxSize (newLine : viewport)

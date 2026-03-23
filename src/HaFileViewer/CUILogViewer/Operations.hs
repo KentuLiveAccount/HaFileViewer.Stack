@@ -53,11 +53,7 @@ scrollDown vs = do
                                           (cursorBottomPosition cursor)
                                           Forward 1
                                           (cursorLastLine cursor + 1)
-      case moreLines of
-        []         -> return vs  -- At EOF
-        (newLine:_) ->
-          let newViewport = shiftViewportDown viewport newLine (vsViewportSize vs)
-          in return $ applyShift newViewport topPos bottomPos vs
+      return $ applyScrollDown moreLines topPos bottomPos vs
 
 -- | Scroll up by one line
 scrollUp :: ViewState -> IO ViewState
@@ -75,11 +71,7 @@ scrollUp vs = do
                                               (cursorTopPosition cursor)
                                               Backward 1
                                               (cursorFirstLine cursor - 1)
-          case prevLines of
-            []          -> return vs
-            (newLine:_) ->
-              let newViewport = shiftViewportUp newLine viewport (vsViewportSize vs)
-              in return $ applyShift newViewport topPos bottomPos vs
+          return $ applyScrollUp prevLines topPos bottomPos vs
 
 -- | Page down (scroll forward by viewport size)
 pageDown :: ViewState -> IO ViewState
