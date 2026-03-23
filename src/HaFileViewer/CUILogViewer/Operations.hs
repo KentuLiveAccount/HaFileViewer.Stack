@@ -92,9 +92,7 @@ pageDown vs = do
                                          (cursorBottomPosition cursor)
                                          Forward (vsViewportSize vs)
                                          (cursorLastLine cursor + 1)
-      if null nextPage
-        then return vs  -- At EOF
-        else return $ applyLoad nextPage topPos bottomPos vs
+      return $ applyLoad Nothing nextPage topPos bottomPos vs
 
 -- | Page up (scroll backward by viewport size)
 pageUp :: ViewState -> IO ViewState
@@ -112,29 +110,19 @@ pageUp vs = do
                                              (cursorTopPosition cursor)
                                              Backward (vsViewportSize vs)
                                              (cursorFirstLine cursor - 1)
-          if null prevPage
-            then return vs
-            else return $ applyLoad prevPage topPos bottomPos vs
+          return $ applyLoad Nothing prevPage topPos bottomPos vs
 
 -- | Jump to start of file
 jumpToStart :: ViewState -> IO ViewState
 jumpToStart vs = do
   (lines, topPos, bottomPos) <- getLinesFromStart (vsCache vs) (vsViewportSize vs)
-  if null lines
-    then return vs  -- Empty file
-    else do
-      let newCursor = (vsCursor vs) { cursorOrigin = lpOrigin topPos }
-      return $ applyLoad lines topPos bottomPos vs { vsCursor = newCursor }
+  return $ applyLoad (Just (lpOrigin topPos)) lines topPos bottomPos vs
 
 -- | Jump to end of file
 jumpToEnd :: ViewState -> IO ViewState
 jumpToEnd vs = do
   (lines, topPos, bottomPos) <- getLinesFromEnd (vsCache vs) (vsViewportSize vs)
-  if null lines
-    then return vs  -- Empty file
-    else do
-      let newCursor = (vsCursor vs) { cursorOrigin = lpOrigin topPos }
-      return $ applyLoad lines topPos bottomPos vs { vsCursor = newCursor }
+  return $ applyLoad (Just (lpOrigin topPos)) lines topPos bottomPos vs
 
 -- | Resize viewport to new height, preserving current scroll position
 resizeViewport :: ViewState -> Int -> IO ViewState
@@ -150,8 +138,6 @@ resizeViewport vs newSize = do
                                          (cursorTopPosition cursor)
                                          scrollDirection newSize
                                          (cursorFirstLine cursor)
-      if null newLines
-        then return vs  -- Keep old viewport if reload fails
-        else return $ applyLoad newLines topPos bottomPos
-               vs { vsViewportSize = newSize }
+      return $ applyLoad Nothing newLines topPos bottomPos
+                 vs { vsViewportSize = newSize }
 

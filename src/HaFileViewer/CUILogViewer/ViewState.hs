@@ -37,18 +37,26 @@ data ViewState = ViewState
 
 -- | Apply a full viewport reload result to ViewState, enforcing size invariant.
 -- Derives cursorFirstLine/cursorLastLine from the loaded lines (no manual arithmetic).
-applyLoad :: [LineWithNumber]  -- ^ Lines returned by cache
+-- Returns vs unchanged if lines is empty (EOF/BOF boundary or IO failure).
+-- Pass Just origin to override cursorOrigin (e.g. jumpToStart/jumpToEnd).
+applyLoad :: Maybe ScanOrigin  -- ^ Override cursor origin, or Nothing to preserve
+          -> [LineWithNumber]  -- ^ Lines returned by cache (empty = no-op)
           -> LinePosition      -- ^ Top position (for scrolling up)
           -> LinePosition      -- ^ Bottom position (for scrolling down)
           -> ViewState
           -> ViewState
-applyLoad lines topPos botPos vs =
+applyLoad _ [] _ _ vs = vs
+applyLoad mOrigin lines topPos botPos vs =
   let loaded = take (vsViewportSize vs) lines
+      origin = case mOrigin of
+        Just o  -> o
+        Nothing -> cursorOrigin (vsCursor vs)
       newCursor = (vsCursor vs)
         { cursorTopPosition    = topPos
         , cursorBottomPosition = botPos
-        , cursorFirstLine      = if null loaded then 0 else fst (head loaded)
-        , cursorLastLine       = if null loaded then 0 else fst (last loaded)
+        , cursorFirstLine      = fst (head loaded)
+        , cursorLastLine       = fst (last loaded)
+        , cursorOrigin         = origin
         }
   in vs { vsViewport = loaded, vsCursor = newCursor }
 
