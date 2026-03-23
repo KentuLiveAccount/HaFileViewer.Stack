@@ -4,7 +4,7 @@ module Main where
 
 import Brick
 import Brick.Main (App(..), defaultMain, halt)
-import Brick.Types (BrickEvent(..), EventM, Context, availHeightL)
+import Brick.Types (BrickEvent(..), EventM)
 import Brick.Widgets.Border (hBorder, hBorderWithLabel)
 import qualified Graphics.Vty as V
 import qualified Data.Text as T
@@ -15,7 +15,6 @@ import System.Directory (doesFileExist)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (when)
 import qualified HaFileViewer.CUILogViewer.Operations as Ops
-import Lens.Micro ((^.))
 
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)
@@ -55,11 +54,12 @@ drawUI vs = [viewport]
       ]
     
     -- Full viewport
-    -- Limit the content area to exactly vsViewportSize to prevent overflow
-    contentHeight = vsViewportSize vs
+    -- padBottom Max makes content greedy: Brick allocates remaining space
+    -- after fixed-height borders and status bar (3 lines total).
+    -- vsViewportSize drives cache loading; Brick handles display sizing.
     viewport = vBox
       [ hBorderWithLabel (str " CUI Log Viewer ")
-      , hLimit maxBound $ vLimit contentHeight $ vBox lineWidgets
+      , padBottom Max $ vBox lineWidgets
       , hBorder
       , statusBar
       ]
@@ -126,23 +126,8 @@ handleEvent (VtyEvent (V.EvResize width height)) = do
   vs <- get
   let uiChrome = 3  -- Top border + bottom border + status bar
       newViewportSize = max 5 (height - uiChrome)
-      oldSize = vsViewportSize vs
-      logPath = "C:\\GitHub\\HaFileViewer.Stack\\resize_debug.log"
-  
-  -- Debug: Log resize event with absolute path
-  liftIO $ appendFile logPath $ 
-    "RESIZE: height=" ++ show height ++ 
-    " oldSize=" ++ show oldSize ++ 
-    " newSize=" ++ show newViewportSize ++
-    " firstLine=" ++ show (cursorFirstLine (vsCursor vs)) ++
-    " origin=" ++ show (cursorOrigin (vsCursor vs)) ++ "\n"
-  
-  -- Only resize if size actually changed
   when (vsViewportSize vs /= newViewportSize) $ do
     vs' <- liftIO $ Ops.resizeViewport vs newViewportSize
-    liftIO $ appendFile logPath $
-      "  AFTER: firstLine=" ++ show (cursorFirstLine (vsCursor vs')) ++
-      " viewport lines=" ++ show (length (vsViewport vs')) ++ "\n"
     put vs'
 
 handleEvent _ = return ()
