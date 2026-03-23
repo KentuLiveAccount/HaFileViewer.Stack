@@ -45,11 +45,10 @@ initializeViewer filepath viewportSize = do
 scrollDown :: ViewState -> IO ViewState
 scrollDown vs@ViewState{ vsViewport = [] } = return vs
 scrollDown vs@ViewState
-    { vsCursor   = ViewCursor{ cursorOrigin       = origin
-                              , cursorLastLine     = lastLine
-                              , cursorBottomPosition = botPos }
-    , vsViewport = _ : _
-    , vsCache    = cache }
+    { vsCursor = ViewCursor{ cursorOrigin       = origin
+                            , cursorLastLine     = lastLine
+                            , cursorBottomPosition = botPos }
+    , vsCache  = cache }
   | origin == FromEnd && lastLine == -1 = return vs
   | otherwise =
       applyScrollDown vs <$>
@@ -75,7 +74,6 @@ pageDown vs@ViewState{ vsViewport = [] } = return vs
 pageDown vs@ViewState
     { vsCursor       = ViewCursor{ cursorBottomPosition = botPos
                                  , cursorLastLine       = lastLine }
-    , vsViewport     = _ : _
     , vsCache        = cache
     , vsViewportSize = size } =
   applyLoad Nothing vs <$>
