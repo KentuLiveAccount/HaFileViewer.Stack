@@ -27,10 +27,6 @@ initializeViewer filepath viewportSize = do
   if null initialLines
     then error "Cannot initialize viewer with empty file"
     else do
-      -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-      let swappedLines = [(lineNum, text) | (text, lineNum) <- initialLines]
-      
-      -- Calculate line number bounds
       let firstLineNum = 1
           lastLineNum = fromIntegral (length initialLines)
       
@@ -46,7 +42,7 @@ initializeViewer filepath viewportSize = do
           initialState = ViewState
             { vsCache = cache
             , vsCursor = cursor
-            , vsViewport = swappedLines
+            , vsViewport = initialLines
             , vsViewportSize = viewportSize
             , vsFilePath = filepath
             }
@@ -76,9 +72,8 @@ scrollDown vs = do
       if null moreLines
         then return vs  -- At EOF, don't change state
         else do
-          -- Get the line with its number (swap tuple order: API returns (Text, Integer))
-          let (text, lineNum) = head moreLines
-              newLine = (lineNum, text)
+          -- Get the line with its number
+          let newLine = head moreLines
           
           -- Shift viewport down
           let newViewport = shiftViewportDown viewport newLine (vsViewportSize vs)
@@ -124,9 +119,8 @@ scrollUp vs = do
           if null prevLines
             then return vs  -- Shouldn't happen, but be safe
             else do
-              -- Get the line with its number (swap tuple order: API returns (Text, Integer))
-              let (text, lineNum) = head prevLines
-                  newLine = (lineNum, text)
+              -- Get the line with its number
+              let newLine = head prevLines
               
               -- Shift viewport up
               let newViewport = shiftViewportUp newLine viewport (vsViewportSize vs)
@@ -164,10 +158,8 @@ pageDown vs = do
       if null nextPage
         then return vs  -- At EOF
         else do
-          -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-          let swappedPage = [(lineNum, text) | (text, lineNum) <- nextPage]
-              newFirstLine = cursorLastLine cursor + 1
-              newLastLine = cursorLastLine cursor + fromIntegral (length nextPage)
+          let newFirstLine = cursorLastLine cursor + 1
+              newLastLine  = cursorLastLine cursor + fromIntegral (length nextPage)
           
           -- Update cursor and viewport
           let newCursor = cursor 
@@ -177,7 +169,7 @@ pageDown vs = do
                 , cursorLastLine = newLastLine
                 }
           
-          return vs { vsViewport = swappedPage, vsCursor = newCursor }
+          return vs { vsViewport = nextPage, vsCursor = newCursor }
 
 -- | Page up (scroll backward by viewport size)
 pageUp :: ViewState -> IO ViewState
@@ -210,20 +202,20 @@ pageUp vs = do
           if null prevPage
             then return vs
             else do
-              -- Swap tuple order
-              let swappedPage = [(lineNum, text) | (text, lineNum) <- prevPage]
-                  newFirstLine = cursorFirstLine cursor - fromIntegral (length prevPage)
-                  newLastLine = cursorFirstLine cursor - 1
-              
-              -- Update cursor and viewport
-              let newCursor = cursor
-                    { cursorTopPosition = topPos
-                    , cursorBottomPosition = bottomPos
-                    , cursorFirstLine = newFirstLine
-                    , cursorLastLine = newLastLine
-                    }
-              
-              return vs { vsViewport = swappedPage, vsCursor = newCursor }
+              if null prevPage
+                then return vs
+                else do
+                  let newFirstLine = cursorFirstLine cursor - fromIntegral (length prevPage)
+                      newLastLine  = cursorFirstLine cursor - 1
+                  let newCursor = cursor
+                        { cursorTopPosition = topPos
+                        , cursorBottomPosition = bottomPos
+                        , cursorFirstLine = newFirstLine
+                        , cursorLastLine = newLastLine
+                        }
+                  return vs { vsViewport = prevPage, vsCursor = newCursor }
+
+
 
 -- | Jump to start of file
 jumpToStart :: ViewState -> IO ViewState
@@ -237,9 +229,7 @@ jumpToStart vs = do
   if null linesWithNumbers
     then return vs  -- Empty file
     else do
-      -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-      let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
-          firstLineNum = 1
+      let firstLineNum = 1
           lastLineNum = fromIntegral (length linesWithNumbers)
       
       -- Create cursor at file start with two positions
@@ -251,7 +241,7 @@ jumpToStart vs = do
             , cursorOrigin = lpOrigin topPos
             }
       
-      return vs { vsViewport = swappedLines
+      return vs { vsViewport = linesWithNumbers
                 , vsCursor = newCursor
                 }
 
@@ -267,9 +257,7 @@ jumpToEnd vs = do
   if null linesWithNumbers
     then return vs  -- Empty file
     else do
-      -- Swap tuple order: API returns (Text, Integer) but we need (Integer, Text)
-      let swappedLines = [(lineNum, text) | (text, lineNum) <- linesWithNumbers]
-          firstLineNum = negate (fromIntegral (length linesWithNumbers))
+      let firstLineNum = negate (fromIntegral (length linesWithNumbers))
           lastLineNum = -1
       
       -- Create cursor at file end with two positions
@@ -281,11 +269,11 @@ jumpToEnd vs = do
             , cursorOrigin = lpOrigin topPos
             }
       
-      return vs { vsViewport = swappedLines
+      return vs { vsViewport = linesWithNumbers
                 , vsCursor = newCursor
                 }
 
--- | Resize viewport to new height, preserving current scroll position
+-- | Resize viewportto new height, preserving current scroll position
 resizeViewport :: ViewState -> Int -> IO ViewState
 resizeViewport vs newSize = do
   let cache = vsCache vs
@@ -312,9 +300,7 @@ resizeViewport vs newSize = do
       if null newLines
         then return vs  -- Keep old viewport if reload fails
         else do
-          -- Swap tuple order
-          let swappedLines = [(lineNum, text) | (text, lineNum) <- newLines]
-              actualSize = length newLines  -- Actual lines received (might be < newSize at EOF)
+          let actualSize = length newLines
               newLastLine = cursorFirstLine cursor + fromIntegral actualSize - 1
           
           -- Update cursor and viewport with new size
@@ -324,7 +310,8 @@ resizeViewport vs newSize = do
                 , cursorLastLine = newLastLine
                 }
           
-          return vs { vsViewport = swappedLines
+          return vs { vsViewport = newLines
                     , vsCursor = newCursor
-                    , vsViewportSize = newSize  -- Desired size (UI will pad if needed)
+                    , vsViewportSize = newSize
                     }
+

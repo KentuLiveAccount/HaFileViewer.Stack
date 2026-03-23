@@ -299,7 +299,7 @@ along with content, and an opaque position marker for resuming reads.
 > -- Returns lines with positive line numbers [1, 2, 3, ...] and TWO positions
 > -- topPosition: for scrolling up (backward), bottomPosition: for scrolling down (forward)
 > getLinesFromStart :: LineCache -> Int 
->                   -> IO ([(T.Text, Integer)], LinePosition, LinePosition)
+>                   -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
 > getLinesFromStart lc count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
@@ -322,7 +322,7 @@ along with content, and an opaque position marker for resuming reads.
 >   
 >   -- Generate line numbers starting from 1
 >   let lineNumbers = calculateForwardLineNumbers 1 count
->       result = zip (map fst linesWithOffsets) lineNumbers
+>       result = zip lineNumbers (map fst linesWithOffsets)
 >   
 >   -- Update sparse index with line number → offset mappings
 >   let indexStep = lcIndexStep lc
@@ -349,7 +349,7 @@ along with content, and an opaque position marker for resuming reads.
 > -- | Read N lines from end of file (backward)
 > -- Returns lines with negative line numbers [-N, -N+1, ..., -1] and TWO positions
 > getLinesFromEnd :: LineCache -> Int 
->                 -> IO ([(T.Text, Integer)], LinePosition, LinePosition)
+>                 -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
 > getLinesFromEnd lc count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
@@ -372,7 +372,7 @@ along with content, and an opaque position marker for resuming reads.
 >   
 >   -- Generate negative line numbers [-count, -count+1, ..., -1]
 >   let lineNumbers = calculateBackwardLineNumbers count
->       result = zip (map fst linesWithOffsets) lineNumbers
+>       result = zip lineNumbers (map fst linesWithOffsets)
 >   
 >   -- Update sparse index with line number → offset mappings
 >   let indexStep = lcIndexStep lc
@@ -401,7 +401,7 @@ along with content, and an opaque position marker for resuming reads.
 > -- The startLineNum parameter tells the cache what line number corresponds to the start position
 > -- Returns lines with appropriate line numbers and TWO positions to continue
 > getLinesFrom :: LineCache -> LinePosition -> Direction -> Int -> Integer
->              -> IO ([(T.Text, Integer)], LinePosition, LinePosition)
+>              -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
 > getLinesFrom lc (LinePosition startOffset origin) dir count startLineNum = do
 >   -- Check if file modified
 >   modified <- checkModified lc
@@ -439,7 +439,7 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> [startLineNum .. startLineNum + fromIntegral count - 1]
 >         Backward -> [startLineNum - fromIntegral count + 1 .. startLineNum]
 >       texts = map fst adjustedLines
->       result = zip texts lineNumbers
+>       result = zip lineNumbers texts
 >   
 >   -- Update sparse index
 >   let indexStep = lcIndexStep lc

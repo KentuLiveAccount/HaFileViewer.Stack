@@ -24,7 +24,7 @@ spec = describe "CR-LF Regression Tests" $ do
         (lines1, _, _) <- getLinesFromStart cache 3
         
         length lines1 `shouldBe` 3
-        let texts = map fst lines1
+        let texts = map snd lines1
         texts `shouldBe` map T.pack testLines
         
         closeLineCache cache
@@ -36,7 +36,7 @@ spec = describe "CR-LF Regression Tests" $ do
         (lines1, _, _) <- getLinesFromStart cache 3
         
         length lines1 `shouldBe` 3
-        let texts = map fst lines1
+        let texts = map snd lines1
         texts `shouldBe` ["Line 1", "Line 2", "Line 3"]
         
         closeLineCache cache
@@ -49,13 +49,13 @@ spec = describe "CR-LF Regression Tests" $ do
         (initial, _, botPos1) <- getLinesFromStart cache 25
         length initial `shouldBe` 25
         
-        let emptyInInitial = filter (\(txt, _) -> T.null txt) initial
+        let emptyInInitial = filter (\(_, txt) -> T.null txt) initial
         emptyInInitial `shouldBe` []
         
         results <- readLinesOneByOne cache botPos1 26 50
         length results `shouldBe` 25
         
-        let emptyLines = filter (\(txt, _) -> T.null txt) results
+        let emptyLines = filter (\(_, txt) -> T.null txt) results
         emptyLines `shouldBe` []
         
         closeLineCache cache
@@ -68,9 +68,9 @@ spec = describe "CR-LF Regression Tests" $ do
         -- Jump to end, get last 25 lines (26-50)
         (linesEnd, _, _) <- getLinesFromEnd cache 25
         length linesEnd `shouldBe` 25
-        let lastLineText = fst (last linesEnd)
+        let lastLineText = snd (last linesEnd)
         lastLineText `shouldBe` "Line 50 has content"
-        let firstLineText = fst (head linesEnd)
+        let firstLineText = snd (head linesEnd)
         firstLineText `shouldBe` "Line 26 has content"
         
         closeLineCache cache
@@ -82,16 +82,16 @@ spec = describe "CR-LF Regression Tests" $ do
         
         -- Read lines 1-10
         (lines1, _, bot1) <- getLinesFromStart cache 10
-        let firstLine1 = fst (head lines1)
+        let firstLine1 = snd (head lines1)
         firstLine1 `shouldBe` "Line 1 has content"
-        let lastLine1 = fst (last lines1)
+        let lastLine1 = snd (last lines1)
         lastLine1 `shouldBe` "Line 10 has content"
         
         -- Read lines 11-20 from bottom position
         (lines2, _, _) <- getLinesFrom cache bot1 Forward 10 11
-        let firstLine2 = fst (head lines2)
+        let firstLine2 = snd (head lines2)
         firstLine2 `shouldBe` "Line 11 has content"
-        let lastLine2 = fst (last lines2)
+        let lastLine2 = snd (last lines2)
         lastLine2 `shouldBe` "Line 20 has content"
         
         closeLineCache cache
@@ -130,7 +130,7 @@ with50LineCRLFFile action =
         hPutStr h2 (line ++ "\r\n")
     action path
 
-readLinesOneByOne :: LineCache -> LinePosition -> Integer -> Integer -> IO [(T.Text, Integer)]
+readLinesOneByOne :: LineCache -> LinePosition -> Integer -> Integer -> IO [(Integer, T.Text)]
 readLinesOneByOne cache startPos startLine endLine 
   | startLine > endLine = return []
   | otherwise = do
