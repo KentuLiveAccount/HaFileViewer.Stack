@@ -22,12 +22,19 @@ import qualified HaFileViewer.CUILogViewer.Operations as Ops
 testFile :: FilePath
 testFile = "test_ui_systematic.txt"
 
+shortFile :: FilePath
+shortFile = "test_ui_short.txt"
+
 -- Create test file with 100 numbered lines
 createTestFile :: IO ()
-createTestFile = writeFile testFile $ unlines [show i | i <- [1..100]]
+createTestFile = do
+  writeFile testFile $ unlines [show i | i <- [1..100]]
+  writeFile shortFile $ unlines [show i | i <- [1..10]]  -- shorter than viewport (25)
 
 cleanupTestFile :: IO ()
-cleanupTestFile = removeFile testFile
+cleanupTestFile = do
+  removeFile testFile
+  removeFile shortFile
 
 -- Helper to create initial state using Operations module
 initializeViewer :: IO ViewState
@@ -370,6 +377,69 @@ testArrowKeysAfterJumpToEnd = do
   return $ upWorked && downStaysAtEnd
 
 -- ============================================================================
+-- BOUNDARY TESTS: Short file (10 lines) with viewport size 25
+-- ============================================================================
+
+initializeShortViewer :: IO ViewState
+initializeShortViewer = Ops.initializeViewer shortFile 25
+
+-- Test 22: Short file loads fewer lines than viewport size
+testShortFileLoadsPartial :: IO Bool
+testShortFileLoadsPartial = do
+  vs <- initializeShortViewer
+  let (first, last, count) = getViewportInfo vs
+  closeLineCache (vsCache vs)
+  return $ first == 1 && last == 10 && count == 10  -- 10 lines, not 25
+
+-- Test 23: pageDown on short file does nothing (already at EOF)
+testPageDownShortFileDoesNothing :: IO Bool
+testPageDownShortFileDoesNothing = do
+  vs0 <- initializeShortViewer
+  let before = getViewportInfo vs0
+  vs1 <- Ops.pageDown vs0
+  let after = getViewportInfo vs1
+  closeLineCache (vsCache vs1)
+  return $ before == after
+
+-- Test 24: pageUp on short file does nothing (already at BOF)
+testPageUpShortFileDoesNothing :: IO Bool
+testPageUpShortFileDoesNothing = do
+  vs0 <- initializeShortViewer
+  let before = getViewportInfo vs0
+  vs1 <- Ops.pageUp vs0
+  let after = getViewportInfo vs1
+  closeLineCache (vsCache vs1)
+  return $ before == after
+
+-- Test 25: pageDown near EOF returns partial page
+testPageDownPartialPage :: IO Bool
+testPageDownPartialPage = do
+  -- 100-line file, viewport 25. Page down 3x gets to lines 76-100.
+  -- Page down again: 0 lines remain, should stay put.
+  vs0 <- initializeViewer
+  vs1 <- Ops.pageDown vs0  -- 26-50
+  vs2 <- Ops.pageDown vs1  -- 51-75
+  vs3 <- Ops.pageDown vs2  -- 76-100
+  let (first3, _, _) = getViewportInfo vs3
+  vs4 <- Ops.pageDown vs3  -- at EOF, should not move
+  let (first4, last4, count4) = getViewportInfo vs4
+  closeLineCache (vsCache vs4)
+  return $ first3 == first4 && last4 == 100 && count4 == 25
+
+-- Test 26: pageUp near BOF returns partial page
+testPageUpPartialPage :: IO Bool
+testPageUpPartialPage = do
+  -- Page down once to lines 26-50, then page up: should go back to 1-25
+  vs0 <- initializeViewer
+  vs1 <- Ops.pageDown vs0   -- 26-50
+  vs2 <- Ops.pageDown vs1   -- 51-75
+  vs3 <- Ops.pageUp vs2     -- 26-50
+  vs4 <- Ops.pageUp vs3     -- 1-25
+  let (first, last, count) = getViewportInfo vs4
+  closeLineCache (vsCache vs4)
+  return $ first == 1 && last == 25 && count == 25
+
+-- ============================================================================
 -- MAIN
 -- ============================================================================
 
@@ -406,6 +476,13 @@ main = bracket
     runTest "19. Down at end does nothing" testDownAtEndDoesNothing
     runTest "20. Arrow keys work after jump to end" testArrowKeysAfterJumpToEnd
     runTest "21. Page down 2x then page up 2x returns to start" testPageNavigation
+
+    putStrLn "\n--- Short File (10 lines, viewport 25) ---"
+    runTest "22. Short file loads partial viewport" testShortFileLoadsPartial
+    runTest "23. pageDown on short file does nothing" testPageDownShortFileDoesNothing
+    runTest "24. pageUp on short file does nothing" testPageUpShortFileDoesNothing
+    runTest "25. pageDown at EOF does nothing" testPageDownPartialPage
+    runTest "26. pageUp returns full page from near-BOF" testPageUpPartialPage
     
     putStrLn "\n================================"
   )

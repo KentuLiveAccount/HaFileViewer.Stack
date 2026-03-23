@@ -13,7 +13,6 @@ module HaFileViewer.CUILogViewer.Operations
   , resizeViewport
   ) where
 
-import qualified Data.Text as T
 import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.Backend.LineCache
 import HaFileViewer.Backend.BidirectionalScanner (Direction(..))
@@ -23,295 +22,136 @@ initializeViewer :: FilePath -> Int -> IO ViewState
 initializeViewer filepath viewportSize = do
   cache <- openLineCache filepath
   (initialLines, topPos, bottomPos) <- getLinesFromStart cache viewportSize
-  
   if null initialLines
     then error "Cannot initialize viewer with empty file"
     else do
-      let firstLineNum = 1
-          lastLineNum = fromIntegral (length initialLines)
-      
-      -- Create initial cursor with two positions
-      let cursor = ViewCursor 
-            { cursorTopPosition = topPos
+      let cursor = ViewCursor
+            { cursorTopPosition    = topPos
             , cursorBottomPosition = bottomPos
-            , cursorFirstLine = firstLineNum
-            , cursorLastLine = lastLineNum
-            , cursorOrigin = lpOrigin topPos
+            , cursorFirstLine      = fst (head initialLines)
+            , cursorLastLine       = fst (last initialLines)
+            , cursorOrigin         = lpOrigin topPos
             }
-          
           initialState = ViewState
-            { vsCache = cache
-            , vsCursor = cursor
-            , vsViewport = initialLines
+            { vsCache        = cache
+            , vsCursor       = cursor
+            , vsViewport     = take viewportSize initialLines
             , vsViewportSize = viewportSize
-            , vsFilePath = filepath
+            , vsFilePath     = filepath
             }
-      
       return initialState
 
 -- | Scroll down by one line
 scrollDown :: ViewState -> IO ViewState
 scrollDown vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
+  let cursor = vsCursor vs
       viewport = vsViewport vs
-  
-  -- At EOF or empty viewport, don't scroll
   if null viewport || (cursorOrigin cursor == FromEnd && cursorLastLine cursor == -1)
     then return vs
     else do
-      -- Use bottom position to read 1 more line forward
-      -- startLineNum is the next line after current viewport
-      let startLineNum = cursorLastLine cursor + 1
-      (moreLines, topPos, bottomPos) <- getLinesFrom cache 
-                                          (cursorBottomPosition cursor) 
-                                          Forward 
-                                          1 
-                                          startLineNum
-      
-      if null moreLines
-        then return vs  -- At EOF, don't change state
-        else do
-          -- Get the line with its number
-          let newLine = head moreLines
-          
-          -- Shift viewport down
+      (moreLines, topPos, bottomPos) <- getLinesFrom (vsCache vs)
+                                          (cursorBottomPosition cursor)
+                                          Forward 1
+                                          (cursorLastLine cursor + 1)
+      case moreLines of
+        []         -> return vs  -- At EOF
+        (newLine:_) ->
           let newViewport = shiftViewportDown viewport newLine (vsViewportSize vs)
-          
-          -- Update cursor with new positions and line numbers
-          let newCursor = cursor 
-                { cursorTopPosition = topPos
-                , cursorBottomPosition = bottomPos
-                , cursorFirstLine = cursorFirstLine cursor + 1
-                , cursorLastLine = cursorLastLine cursor + 1
-                }
-          
-          return vs { vsViewport = newViewport, vsCursor = newCursor }
+          in return $ applyShift newViewport topPos bottomPos vs
 
 -- | Scroll up by one line
 scrollUp :: ViewState -> IO ViewState
 scrollUp vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
+  let cursor = vsCursor vs
       viewport = vsViewport vs
-  
-  -- Can't scroll up from beginning or empty viewport
   if null viewport
     then return vs
     else do
-      -- Get the line number of the first line in viewport
       let (firstLineNum, _) = head viewport
-      
-      -- Can't scroll up if we're at line 1 (beginning of file)
-      -- Only block at start (FromStart origin), allow scrolling from end (negative lines)
       if cursorOrigin cursor == FromStart && firstLineNum <= 1
         then return vs
         else do
-          -- Use top position to read 1 line backward
-          -- startLineNum is the previous line before current viewport
-          let startLineNum = cursorFirstLine cursor - 1
-          (prevLines, topPos, bottomPos) <- getLinesFrom cache 
-                                              (cursorTopPosition cursor) 
-                                              Backward 
-                                              1 
-                                              startLineNum
-          
-          if null prevLines
-            then return vs  -- Shouldn't happen, but be safe
-            else do
-              -- Get the line with its number
-              let newLine = head prevLines
-              
-              -- Shift viewport up
+          (prevLines, topPos, bottomPos) <- getLinesFrom (vsCache vs)
+                                              (cursorTopPosition cursor)
+                                              Backward 1
+                                              (cursorFirstLine cursor - 1)
+          case prevLines of
+            []          -> return vs
+            (newLine:_) ->
               let newViewport = shiftViewportUp newLine viewport (vsViewportSize vs)
-              
-              -- Update cursor with new positions and line numbers
-              let newCursor = cursor
-                    { cursorTopPosition = topPos
-                    , cursorBottomPosition = bottomPos
-                    , cursorFirstLine = cursorFirstLine cursor - 1
-                    , cursorLastLine = cursorLastLine cursor - 1
-                    }
-              
-              return vs { vsViewport = newViewport, vsCursor = newCursor }
+              in return $ applyShift newViewport topPos bottomPos vs
 
 -- | Page down (scroll forward by viewport size)
 pageDown :: ViewState -> IO ViewState
 pageDown vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
-      viewport = vsViewport vs
-      pageSize = vsViewportSize vs
-  
-  if null viewport
+  let cursor = vsCursor vs
+  if null (vsViewport vs)
     then return vs
     else do
-      -- Read a full page forward from bottom position
-      -- startLineNum is the next line after current viewport
-      let startLineNum = cursorLastLine cursor + 1
-      (nextPage, topPos, bottomPos) <- getLinesFrom cache 
-                                        (cursorBottomPosition cursor) 
-                                        Forward 
-                                        pageSize 
-                                        startLineNum
-      
+      (nextPage, topPos, bottomPos) <- getLinesFrom (vsCache vs)
+                                         (cursorBottomPosition cursor)
+                                         Forward (vsViewportSize vs)
+                                         (cursorLastLine cursor + 1)
       if null nextPage
         then return vs  -- At EOF
-        else do
-          let newFirstLine = cursorLastLine cursor + 1
-              newLastLine  = cursorLastLine cursor + fromIntegral (length nextPage)
-          
-          -- Update cursor and viewport
-          let newCursor = cursor 
-                { cursorTopPosition = topPos
-                , cursorBottomPosition = bottomPos
-                , cursorFirstLine = newFirstLine
-                , cursorLastLine = newLastLine
-                }
-          
-          return vs { vsViewport = nextPage, vsCursor = newCursor }
+        else return $ applyLoad nextPage topPos bottomPos vs
 
 -- | Page up (scroll backward by viewport size)
 pageUp :: ViewState -> IO ViewState
 pageUp vs = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
+  let cursor = vsCursor vs
       viewport = vsViewport vs
-      pageSize = vsViewportSize vs
-  
   if null viewport
     then return vs
     else do
-      -- Get the line number of the first line in viewport
       let (firstLineNum, _) = head viewport
-      
-      -- Can't page up if we're at beginning (line 1 with FromStart)
-      -- Only block at start (FromStart origin), allow paging from end (negative lines)
       if cursorOrigin cursor == FromStart && firstLineNum <= 1
         then return vs
         else do
-          -- Read a full page backward from top position
-          -- startLineNum is the previous line before current viewport
-          let startLineNum = cursorFirstLine cursor - 1
-          (prevPage, topPos, bottomPos) <- getLinesFrom cache 
-                                            (cursorTopPosition cursor) 
-                                            Backward 
-                                            pageSize 
-                                            startLineNum
-          
+          (prevPage, topPos, bottomPos) <- getLinesFrom (vsCache vs)
+                                             (cursorTopPosition cursor)
+                                             Backward (vsViewportSize vs)
+                                             (cursorFirstLine cursor - 1)
           if null prevPage
             then return vs
-            else do
-              if null prevPage
-                then return vs
-                else do
-                  let newFirstLine = cursorFirstLine cursor - fromIntegral (length prevPage)
-                      newLastLine  = cursorFirstLine cursor - 1
-                  let newCursor = cursor
-                        { cursorTopPosition = topPos
-                        , cursorBottomPosition = bottomPos
-                        , cursorFirstLine = newFirstLine
-                        , cursorLastLine = newLastLine
-                        }
-                  return vs { vsViewport = prevPage, vsCursor = newCursor }
-
-
+            else return $ applyLoad prevPage topPos bottomPos vs
 
 -- | Jump to start of file
 jumpToStart :: ViewState -> IO ViewState
 jumpToStart vs = do
-  let cache = vsCache vs
-      pageSize = vsViewportSize vs
-  
-  -- Use new API: get lines from start (returns 3 values)
-  (linesWithNumbers, topPos, bottomPos) <- getLinesFromStart cache pageSize
-  
-  if null linesWithNumbers
+  (lines, topPos, bottomPos) <- getLinesFromStart (vsCache vs) (vsViewportSize vs)
+  if null lines
     then return vs  -- Empty file
     else do
-      let firstLineNum = 1
-          lastLineNum = fromIntegral (length linesWithNumbers)
-      
-      -- Create cursor at file start with two positions
-      let newCursor = ViewCursor
-            { cursorTopPosition = topPos
-            , cursorBottomPosition = bottomPos
-            , cursorFirstLine = firstLineNum
-            , cursorLastLine = lastLineNum
-            , cursorOrigin = lpOrigin topPos
-            }
-      
-      return vs { vsViewport = linesWithNumbers
-                , vsCursor = newCursor
-                }
+      let newCursor = (vsCursor vs) { cursorOrigin = lpOrigin topPos }
+      return $ applyLoad lines topPos bottomPos vs { vsCursor = newCursor }
 
 -- | Jump to end of file
 jumpToEnd :: ViewState -> IO ViewState
 jumpToEnd vs = do
-  let cache = vsCache vs
-      pageSize = vsViewportSize vs
-  
-  -- Use new API: get lines from end (returns 3 values)
-  (linesWithNumbers, topPos, bottomPos) <- getLinesFromEnd cache pageSize
-  
-  if null linesWithNumbers
+  (lines, topPos, bottomPos) <- getLinesFromEnd (vsCache vs) (vsViewportSize vs)
+  if null lines
     then return vs  -- Empty file
     else do
-      let firstLineNum = negate (fromIntegral (length linesWithNumbers))
-          lastLineNum = -1
-      
-      -- Create cursor at file end with two positions
-      let newCursor = ViewCursor
-            { cursorTopPosition = topPos
-            , cursorBottomPosition = bottomPos
-            , cursorFirstLine = firstLineNum
-            , cursorLastLine = lastLineNum
-            , cursorOrigin = lpOrigin topPos
-            }
-      
-      return vs { vsViewport = linesWithNumbers
-                , vsCursor = newCursor
-                }
+      let newCursor = (vsCursor vs) { cursorOrigin = lpOrigin topPos }
+      return $ applyLoad lines topPos bottomPos vs { vsCursor = newCursor }
 
--- | Resize viewportto new height, preserving current scroll position
+-- | Resize viewport to new height, preserving current scroll position
 resizeViewport :: ViewState -> Int -> IO ViewState
 resizeViewport vs newSize = do
-  let cache = vsCache vs
-      cursor = vsCursor vs
-      currentSize = vsViewportSize vs
-  
-  -- If size didn't change, do nothing
-  if newSize == currentSize
+  let cursor = vsCursor vs
+  if newSize == vsViewportSize vs
     then return vs
     else do
-      -- Reload viewport from current position with new size
-      -- Preserve scroll direction based on current origin
-      let startLineNum = cursorFirstLine cursor
-          scrollDirection = case cursorOrigin cursor of
+      let scrollDirection = case cursorOrigin cursor of
             FromStart -> Forward
             FromEnd   -> Backward
-      
-      (newLines, topPos, bottomPos) <- getLinesFrom cache 
-                                         (cursorTopPosition cursor) 
-                                         scrollDirection
-                                         newSize 
-                                         startLineNum
-      
+      (newLines, topPos, bottomPos) <- getLinesFrom (vsCache vs)
+                                         (cursorTopPosition cursor)
+                                         scrollDirection newSize
+                                         (cursorFirstLine cursor)
       if null newLines
         then return vs  -- Keep old viewport if reload fails
-        else do
-          let actualSize = length newLines
-              newLastLine = cursorFirstLine cursor + fromIntegral actualSize - 1
-          
-          -- Update cursor and viewport with new size
-          let newCursor = cursor
-                { cursorTopPosition = topPos
-                , cursorBottomPosition = bottomPos
-                , cursorLastLine = newLastLine
-                }
-          
-          return vs { vsViewport = newLines
-                    , vsCursor = newCursor
-                    , vsViewportSize = newSize
-                    }
+        else return $ applyLoad newLines topPos bottomPos
+               vs { vsViewportSize = newSize }
 

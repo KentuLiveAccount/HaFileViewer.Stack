@@ -16,7 +16,6 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad (when)
 import qualified HaFileViewer.CUILogViewer.Operations as Ops
 import Lens.Micro ((^.))
-import Control.Exception (assert)
 
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)
@@ -25,12 +24,6 @@ data Name = ViewportName deriving (Ord, Show, Eq)
 drawUI :: ViewState -> [Widget Name]
 drawUI vs = [viewport]
   where
-    -- ASSERTION: Viewport data should never exceed vsViewportSize
-    -- This catches bugs where viewport list grows larger than allocated space
-    actualLineCount = length (vsViewport vs)
-    expectedSize = vsViewportSize vs
-    _ = assert (actualLineCount <= expectedSize) ()
-    
     -- Render each line with line number
     lineWidgets = if null (vsViewport vs)
                   then [str "(empty file)"]
