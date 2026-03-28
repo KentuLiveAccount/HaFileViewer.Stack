@@ -242,12 +242,12 @@ They are extracted for testability - see test_linecache_pure.hs for unit tests.
 >   take count [startLine..]
 
 > -- | Calculate line numbers for backward reading (from end of file)
-> -- Always generates negative numbers: [-count, -count+1, ..., -2, -1]
-> calculateBackwardLineNumbers :: Int -> [Integer]
-> calculateBackwardLineNumbers count = 
->   if count <= 0 
->     then []
->     else [negate (fromIntegral count) .. (-1)]
+> -- If total lines is known, generates positive numbers [total-count+1 .. total]
+> -- Otherwise generates negative numbers [-count .. -1]
+> calculateBackwardLineNumbers :: Int -> Maybe Integer -> [Integer]
+> calculateBackwardLineNumbers count _ | count <= 0 = []
+> calculateBackwardLineNumbers count Nothing        = [negate (fromIntegral count) .. (-1)]
+> calculateBackwardLineNumbers count (Just total)   = [total - fromIntegral count + 1 .. total]
 
 > -- | Extract new position from scan results
 > -- For Forward: take offset after last line
@@ -301,8 +301,12 @@ along with content, and an opaque position marker for resuming reads.
 >     insertWithEviction lc offset text
 >   
 >   -- Generate line numbers starting from 1
->   let lineNumbers = calculateForwardLineNumbers 1 count
+>   let lineNumbers = calculateForwardLineNumbers 1 (length linesWithOffsets)
 >       result = zip lineNumbers (map fst linesWithOffsets)
+>   
+>   -- If we got fewer lines than requested, we've hit EOF — record total
+>   when (length result < count) $
+>     writeIORef (lcTotalLines lc) (Just $ fromIntegral (length result))
 >   
 >   -- Update sparse index with line number → offset mappings
 >   let indexStep = lcIndexStep lc
@@ -358,8 +362,9 @@ along with content, and an opaque position marker for resuming reads.
 >   forM_ linesWithOffsets $ \(text, offset) ->
 >     insertWithEviction lc offset text
 >   
->   -- Generate negative line numbers [-count, -count+1, ..., -1]
->   let lineNumbers = calculateBackwardLineNumbers count
+>   mTotal <- readIORef (lcTotalLines lc)
+>   -- Generate line numbers: positive if total known, negative otherwise
+>   let lineNumbers = calculateBackwardLineNumbers (length linesWithOffsets) mTotal
 >       result = zip lineNumbers (map fst linesWithOffsets)
 >   
 >   -- Update sparse index with line number → offset mappings
@@ -432,11 +437,20 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Calculate line numbers for the returned lines
 >   -- The caller tells us the starting line number via startLineNum parameter
 >   -- For backward scans, texts are in file order, so line numbers must be too
->   let lineNumbers = case dir of
->         Forward  -> [startLineNum .. startLineNum + fromIntegral count - 1]
->         Backward -> [startLineNum - fromIntegral count + 1 .. startLineNum]
+>   mTotal <- readIORef (lcTotalLines lc)
+>   let resolveLineNum n = case (mTotal, n < 0) of
+>         (Just total, True) -> total + n + 1
+>         _                  -> n
+>       lineNumbers = case dir of
+>         Forward  -> [startLineNum .. startLineNum + fromIntegral (length adjustedLines) - 1]
+>         Backward -> let resolvedStart = resolveLineNum startLineNum
+>                     in [resolvedStart - fromIntegral (length adjustedLines) + 1 .. resolvedStart]
 >       texts = map fst adjustedLines
 >       result = zip lineNumbers texts
+>   
+>   -- If forward scan returned fewer lines than requested, we've reached EOF
+>   when (dir == Forward && length result < count && not (null result)) $
+>     writeIORef (lcTotalLines lc) (Just $ fst (last result))
 >   
 >   -- Update sparse index
 >   let indexStep = lcIndexStep lc
