@@ -41,11 +41,6 @@ Performance Characteristics:
 >   , closeLineCache
 >   , withLineCache
 >     
->     -- * Query operations
->   , getLines
->   , getLine
->   , getTotalLines
->     
 >     -- * New line-oriented API with positions
 >   , getLinesFromStart
 >   , getLinesFromEnd
@@ -65,15 +60,14 @@ Performance Characteristics:
 >   , extractNewPosition
 >   ) where
 
-> import Prelude hiding (lookup, getLine)
+> import Prelude hiding (lookup)
 > import qualified Data.Map.Strict as Map
 > import qualified Data.Text as T
 > import qualified Data.Text.Encoding as TE
 > import qualified Data.ByteString as BS
 > import Data.IORef
 > import Data.Time (UTCTime, getCurrentTime)
-> import System.IO hiding (getLine)
-> import System.IO (hSeek, SeekMode(..))
+> import System.IO
 > import System.Directory (getModificationTime, getFileSize)
 > import Control.Exception (bracket, try, IOException)
 > import Control.Monad (when, forM_)
@@ -235,26 +229,6 @@ Creation and Lifecycle
 > withLineCache :: FilePath -> (LineCache -> IO a) -> IO a
 > withLineCache path = bracket (openLineCache path) closeLineCache
 
-Query Operations
-----------------
-
-> -- | Get lines starting at given position (main API)
-> -- Handles all caching internally
-> -- | DEPRECATED: Get N lines starting from a line number
-> -- Use getLinesFromStart, getLinesFromEnd, or getLinesFrom instead
-> getLines :: LineCache 
->          -> Integer    -- ^ Start line (0-based)
->          -> Int        -- ^ Number of lines
->          -> IO [T.Text]
-> getLines _lc _startLine _count = 
->   error "getLines is deprecated. Use getLinesFromStart/getLinesFromEnd/getLinesFrom instead."
-
-> -- | DEPRECATED: Get a single line (convenience)
-> -- Use getLinesFromStart, getLinesFromEnd, or getLinesFrom instead
-> getLine :: LineCache -> Integer -> IO (Maybe T.Text)
-> getLine _lc _lineNum = 
->   error "getLine is deprecated. Use getLinesFromStart/getLinesFromEnd/getLinesFrom instead."
-
 Pure Helper Functions for New API
 ----------------------------------
 
@@ -286,16 +260,6 @@ They are extracted for testability - see test_linecache_pure.hs for unit tests.
 >   in lastOffset + lastLineLength + 1  -- +1 for newline character
 > extractNewPosition results Backward = 
 >   snd (head results)  -- First line's offset
-
-> -- | Get total number of lines (lazy - scans if unknown)
-> getTotalLines :: LineCache -> IO Integer
-> getTotalLines lc = do
->   cached <- readIORef (lcTotalLines lc)
->   case cached of
->     Just total -> return total
->     Nothing -> do
->       -- TODO: Scan to find total
->       return 0  -- Placeholder
 
 New Line-Oriented API with Positions
 -------------------------------------
