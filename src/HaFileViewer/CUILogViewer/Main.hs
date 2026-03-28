@@ -43,12 +43,16 @@ drawUI vs = [viewport]
                else "Lines: " ++ show (cursorFirstLine cursor) ++ " to " ++ show (cursorLastLine cursor)
     
     -- Status bar
+    errorInfo = case vsError vs of
+      Nothing  -> str ""
+      Just msg -> str ("  ERROR: " ++ msg)
+
     statusBar = hBox
       [ str "File: "
       , str (vsFilePath vs)
       , str "  |  "
       , str lineInfo
-      , str positionInfo
+      , errorInfo
       , str "  |  "
       , str "q:quit g:top G:end ↑↓:scroll PgUp/Dn:page"
       ]

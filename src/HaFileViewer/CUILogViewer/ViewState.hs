@@ -4,6 +4,9 @@ module HaFileViewer.CUILogViewer.ViewState
   , ViewCursor(..)
   , LineWithNumber
     
+    -- * Re-exports from LineCache
+  , GetLinesResult(..)
+    
     -- * Functions
   , applyLoad
   , applyScrollDown
@@ -12,7 +15,7 @@ module HaFileViewer.CUILogViewer.ViewState
   ) where
 
 import qualified Data.Text as T
-import HaFileViewer.Backend.LineCache (LineCache, LinePosition, ScanOrigin(..))
+import HaFileViewer.Backend.LineCache (LineCache, LinePosition, ScanOrigin(..), GetLinesResult(..))
 
 -- | Cursor tracking position in file with two-position tracking for bidirectional scrolling
 data ViewCursor = ViewCursor
@@ -33,6 +36,7 @@ data ViewState = ViewState
   , vsViewport     :: [LineWithNumber]    -- ^ Currently visible lines
   , vsViewportSize :: Int                 -- ^ Number of lines to display
   , vsFilePath     :: FilePath            -- ^ Path to the file being viewed
+  , vsError        :: Maybe String        -- ^ Last IO error, if any
   }
 
 -- | Apply a full viewport reload result to ViewState, enforcing size invariant.
@@ -41,10 +45,11 @@ data ViewState = ViewState
 -- Pass Just origin to override cursorOrigin (e.g. jumpToStart/jumpToEnd).
 applyLoad :: Maybe ScanOrigin  -- ^ Override cursor origin, or Nothing to preserve
           -> ViewState
-          -> ([LineWithNumber], LinePosition, LinePosition)  -- ^ Cache result (empty lines = no-op)
+          -> GetLinesResult
           -> ViewState
-applyLoad _ vs ([], _, _) = vs
-applyLoad mOrigin vs (lines, topPos, botPos) =
+applyLoad _ vs AtBoundary = vs { vsError = Nothing }
+applyLoad _ vs (LoadFailed msg) = vs { vsError = Just msg }
+applyLoad mOrigin vs (LinesLoaded lines topPos botPos) =
   let loaded = take (vsViewportSize vs) lines
       origin = case mOrigin of
         Just o  -> o
@@ -56,7 +61,7 @@ applyLoad mOrigin vs (lines, topPos, botPos) =
         , cursorLastLine       = fst (last loaded)
         , cursorOrigin         = origin
         }
-  in vs { vsViewport = loaded, vsCursor = newCursor }
+  in vs { vsViewport = loaded, vsCursor = newCursor, vsError = Nothing }
 
 -- | Apply a single-line shift to ViewState (used by scrollDown/scrollUp).
 -- Updates positions and derives new first/last line from the shifted viewport.
@@ -76,18 +81,22 @@ applyShift newViewport topPos botPos vs =
 
 -- | Scroll down by one line, handling empty result (EOF) as no-op.
 applyScrollDown :: ViewState
-                -> ([LineWithNumber], LinePosition, LinePosition)  -- ^ Cache result (empty lines = EOF, no-op)
+                -> GetLinesResult
                 -> ViewState
-applyScrollDown vs ([], _, _)            = vs
-applyScrollDown vs (newLine:_, top, bot) =
+applyScrollDown vs AtBoundary            = vs { vsError = Nothing }
+applyScrollDown vs (LoadFailed msg)      = vs { vsError = Just msg }
+applyScrollDown vs (LinesLoaded [] _ _)  = vs { vsError = Nothing }
+applyScrollDown vs (LinesLoaded (newLine:_) top bot) =
   applyShift (shiftViewportDown (vsViewport vs) newLine (vsViewportSize vs)) top bot vs
 
 -- | Scroll up by one line, handling empty result (BOF) as no-op.
 applyScrollUp :: ViewState
-              -> ([LineWithNumber], LinePosition, LinePosition)  -- ^ Cache result (empty lines = BOF, no-op)
+              -> GetLinesResult
               -> ViewState
-applyScrollUp vs ([], _, _)            = vs
-applyScrollUp vs (newLine:_, top, bot) =
+applyScrollUp vs AtBoundary            = vs { vsError = Nothing }
+applyScrollUp vs (LoadFailed msg)      = vs { vsError = Just msg }
+applyScrollUp vs (LinesLoaded [] _ _)  = vs { vsError = Nothing }
+applyScrollUp vs (LinesLoaded (newLine:_) top bot) =
   applyShift (shiftViewportUp newLine (vsViewport vs) (vsViewportSize vs)) top bot vs
 
 -- Shift viewport down by removing first line and adding new line at end

@@ -14,6 +14,12 @@ import Control.Monad (forM_)
 main :: IO ()
 main = hspec spec
 
+-- | Unwrap a successful GetLinesResult for use in tests.
+unwrap :: GetLinesResult -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+unwrap (LinesLoaded ls t b) = return (ls, t, b)
+unwrap AtBoundary            = fail "expected LinesLoaded, got AtBoundary"
+unwrap (LoadFailed msg)      = fail ("expected LinesLoaded, got LoadFailed: " ++ msg)
+
 spec :: Spec
 spec = describe "CR-LF Regression Tests" $ do
   
@@ -21,7 +27,7 @@ spec = describe "CR-LF Regression Tests" $ do
     it "correctly reads 3-line CR-LF file" $
       withCRLFFile testLines $ \path -> do
         cache <- openLineCache path
-        (lines1, _, _) <- getLinesFromStart cache 3
+        (lines1, _, _) <- unwrap =<< getLinesFromStart cache 3
         
         length lines1 `shouldBe` 3
         let texts = map snd lines1
@@ -33,7 +39,7 @@ spec = describe "CR-LF Regression Tests" $ do
     it "correctly handles LF-only files" $
       withLFFile ["Line 1", "Line 2", "Line 3"] $ \path -> do
         cache <- openLineCache path
-        (lines1, _, _) <- getLinesFromStart cache 3
+        (lines1, _, _) <- unwrap =<< getLinesFromStart cache 3
         
         length lines1 `shouldBe` 3
         let texts = map snd lines1
@@ -46,7 +52,7 @@ spec = describe "CR-LF Regression Tests" $ do
       with50LineCRLFFile $ \path -> do
         cache <- openLineCache path
         
-        (initial, _, botPos1) <- getLinesFromStart cache 25
+        (initial, _, botPos1) <- unwrap =<< getLinesFromStart cache 25
         length initial `shouldBe` 25
         
         let emptyInInitial = filter (\(_, txt) -> T.null txt) initial
@@ -66,7 +72,7 @@ spec = describe "CR-LF Regression Tests" $ do
         cache <- openLineCache path
         
         -- Jump to end, get last 25 lines (26-50)
-        (linesEnd, _, _) <- getLinesFromEnd cache 25
+        (linesEnd, _, _) <- unwrap =<< getLinesFromEnd cache 25
         length linesEnd `shouldBe` 25
         let lastLineText = snd (last linesEnd)
         lastLineText `shouldBe` "Line 50 has content"
@@ -81,14 +87,14 @@ spec = describe "CR-LF Regression Tests" $ do
         cache <- openLineCache path
         
         -- Read lines 1-10
-        (lines1, _, bot1) <- getLinesFromStart cache 10
+        (lines1, _, bot1) <- unwrap =<< getLinesFromStart cache 10
         let firstLine1 = snd (head lines1)
         firstLine1 `shouldBe` "Line 1 has content"
         let lastLine1 = snd (last lines1)
         lastLine1 `shouldBe` "Line 10 has content"
         
         -- Read lines 11-20 from bottom position
-        (lines2, _, _) <- getLinesFrom cache bot1 Forward 10 11
+        (lines2, _, _) <- unwrap =<< getLinesFrom cache bot1 Forward 10 11
         let firstLine2 = snd (head lines2)
         firstLine2 `shouldBe` "Line 11 has content"
         let lastLine2 = snd (last lines2)
@@ -134,9 +140,9 @@ readLinesOneByOne :: LineCache -> LinePosition -> Integer -> Integer -> IO [(Int
 readLinesOneByOne cache startPos startLine endLine 
   | startLine > endLine = return []
   | otherwise = do
-      (lines1, _, botPos) <- getLinesFrom cache startPos Forward 1 startLine
-      if null lines1
-        then return []
-        else do
+      res <- getLinesFrom cache startPos Forward 1 startLine
+      case res of
+        LinesLoaded lines1 _ botPos -> do
           rest <- readLinesOneByOne cache botPos (startLine + 1) endLine
           return (lines1 ++ rest)
+        _ -> return []

@@ -21,10 +21,9 @@ import HaFileViewer.Backend.BidirectionalScanner (Direction(..))
 initializeViewer :: FilePath -> Int -> IO ViewState
 initializeViewer filepath viewportSize = do
   cache <- openLineCache filepath
-  (initialLines, topPos, bottomPos) <- getLinesFromStart cache viewportSize
-  if null initialLines
-    then error "Cannot initialize viewer with empty file"
-    else do
+  result <- getLinesFromStart cache viewportSize
+  case result of
+    LinesLoaded initialLines topPos bottomPos -> do
       let cursor = ViewCursor
             { cursorTopPosition    = topPos
             , cursorBottomPosition = bottomPos
@@ -38,8 +37,11 @@ initializeViewer filepath viewportSize = do
             , vsViewport     = take viewportSize initialLines
             , vsViewportSize = viewportSize
             , vsFilePath     = filepath
+            , vsError        = Nothing
             }
       return initialState
+    AtBoundary -> error "Cannot initialize viewer with empty file"
+    LoadFailed msg -> error ("Cannot initialize viewer: " ++ msg)
 
 -- | Scroll down by one line
 scrollDown :: ViewState -> IO ViewState

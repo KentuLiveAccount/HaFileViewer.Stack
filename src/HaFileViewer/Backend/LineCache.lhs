@@ -33,6 +33,7 @@ Performance Characteristics:
 >   , LinePosition  -- Opaque type, constructor not exported
 >   , ScanOrigin(..)  -- Export with constructors for pattern matching
 >   , lpOrigin   -- Export accessor for origin
+>   , GetLinesResult(..)
 >     
 >     -- * Creation and lifecycle
 >   , openLineCache
@@ -74,7 +75,7 @@ Performance Characteristics:
 > import System.IO hiding (getLine)
 > import System.IO (hSeek, SeekMode(..))
 > import System.Directory (getModificationTime, getFileSize)
-> import Control.Exception (bracket)
+> import Control.Exception (bracket, try, IOException)
 > import Control.Monad (when, forM_)
 > 
 > import HaFileViewer.Backend.BidirectionalScanner 
@@ -84,6 +85,13 @@ Performance Characteristics:
 
 > -- | Origin point for line numbering (where did we start?)
 > data ScanOrigin = FromStart | FromEnd
+>   deriving (Show, Eq)
+
+> -- | Result of a cache line-fetch operation
+> data GetLinesResult
+>   = LinesLoaded [(Integer, T.Text)] LinePosition LinePosition
+>   | AtBoundary
+>   | LoadFailed String
 >   deriving (Show, Eq)
 
 Configuration
@@ -298,9 +306,17 @@ along with content, and an opaque position marker for resuming reads.
 > -- | Read N lines from start of file (forward)
 > -- Returns lines with positive line numbers [1, 2, 3, ...] and TWO positions
 > -- topPosition: for scrolling up (backward), bottomPosition: for scrolling down (forward)
-> getLinesFromStart :: LineCache -> Int 
->                   -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+> getLinesFromStart :: LineCache -> Int -> IO GetLinesResult
 > getLinesFromStart lc count = do
+>   res <- (try (getLinesFromStart' lc count) :: IO (Either IOException ([(Integer, T.Text)], LinePosition, LinePosition)))
+>   case res of
+>     Left err               -> return (LoadFailed (show err))
+>     Right ([], _, _)       -> return AtBoundary
+>     Right (ls, topPos, botPos) -> return (LinesLoaded ls topPos botPos)
+>
+> getLinesFromStart' :: LineCache -> Int
+>                   -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+> getLinesFromStart' lc count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
@@ -348,9 +364,17 @@ along with content, and an opaque position marker for resuming reads.
 
 > -- | Read N lines from end of file (backward)
 > -- Returns lines with negative line numbers [-N, -N+1, ..., -1] and TWO positions
-> getLinesFromEnd :: LineCache -> Int 
->                 -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+> getLinesFromEnd :: LineCache -> Int -> IO GetLinesResult
 > getLinesFromEnd lc count = do
+>   res <- (try (getLinesFromEnd' lc count) :: IO (Either IOException ([(Integer, T.Text)], LinePosition, LinePosition)))
+>   case res of
+>     Left err               -> return (LoadFailed (show err))
+>     Right ([], _, _)       -> return AtBoundary
+>     Right (ls, topPos, botPos) -> return (LinesLoaded ls topPos botPos)
+>
+> getLinesFromEnd' :: LineCache -> Int
+>                 -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+> getLinesFromEnd' lc count = do
 >   -- Check if file modified
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
@@ -401,8 +425,17 @@ along with content, and an opaque position marker for resuming reads.
 > -- The startLineNum parameter tells the cache what line number corresponds to the start position
 > -- Returns lines with appropriate line numbers and TWO positions to continue
 > getLinesFrom :: LineCache -> LinePosition -> Direction -> Int -> Integer
->              -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
-> getLinesFrom lc (LinePosition startOffset origin) dir count startLineNum = do
+>              -> IO GetLinesResult
+> getLinesFrom lc pos dir count startLineNum = do
+>   res <- (try (getLinesFrom' lc pos dir count startLineNum) :: IO (Either IOException ([(Integer, T.Text)], LinePosition, LinePosition)))
+>   case res of
+>     Left err               -> return (LoadFailed (show err))
+>     Right ([], _, _)       -> return AtBoundary
+>     Right (ls, topPos, botPos) -> return (LinesLoaded ls topPos botPos)
+>
+> getLinesFrom' :: LineCache -> LinePosition -> Direction -> Int -> Integer
+>               -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+> getLinesFrom' lc (LinePosition startOffset origin) dir count startLineNum = do
 >   -- Check if file modified
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
