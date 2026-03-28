@@ -10,7 +10,7 @@ import qualified Data.Text as T
 import HaFileViewer.Backend.LineCache
 import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.Backend.BidirectionalScanner (Direction(..))
-import System.IO (writeFile)
+import System.IO (writeFile, openTempFile, hPutStr, hClose)
 import System.Directory (removeFile, getCurrentDirectory, setCurrentDirectory)
 import Control.Exception (bracket)
 import Control.Monad (when, foldM)
@@ -440,6 +440,56 @@ testPageUpPartialPage = do
   return $ first == 1 && last == 25 && count == 25
 
 -- ============================================================================
+-- IO ERROR PROPAGATION TESTS
+-- ============================================================================
+
+-- Test 27: applyLoad with LoadFailed preserves viewport and sets vsError
+testApplyLoadWithLoadFailed :: IO Bool
+testApplyLoadWithLoadFailed = do
+  vs <- initializeViewer
+  let result = applyLoad Nothing vs (LoadFailed "test error")
+  closeLineCache (vsCache vs)
+  return $ vsViewport result == vsViewport vs && vsError result == Just "test error"
+
+-- Test 28: applyScrollDown with LoadFailed preserves viewport and sets vsError
+testApplyScrollDownWithLoadFailed :: IO Bool
+testApplyScrollDownWithLoadFailed = do
+  vs <- initializeViewer
+  let result = applyScrollDown vs (LoadFailed "disk error")
+  closeLineCache (vsCache vs)
+  return $ vsViewport result == vsViewport vs && vsError result == Just "disk error"
+
+-- Test 29: applyScrollUp with LoadFailed preserves viewport and sets vsError
+testApplyScrollUpWithLoadFailed :: IO Bool
+testApplyScrollUpWithLoadFailed = do
+  vs <- initializeViewer
+  let result = applyScrollUp vs (LoadFailed "network error")
+  closeLineCache (vsCache vs)
+  return $ vsViewport result == vsViewport vs && vsError result == Just "network error"
+
+-- Test 30: applyLoad with LinesLoaded clears vsError
+testApplyLoadClearsError :: IO Bool
+testApplyLoadClearsError = do
+  vs <- initializeViewer
+  let vsWithError = vs { vsError = Just "old error" }
+  linesResult <- getLinesFromStart (vsCache vs) 5
+  let result = applyLoad Nothing vsWithError linesResult
+  closeLineCache (vsCache vs)
+  return $ vsError result == Nothing
+
+-- Test 31: scrollDown on deleted file sets vsError in returned ViewState
+testScrollDownOnDeletedFile :: IO Bool
+testScrollDownOnDeletedFile = do
+  (path, h) <- openTempFile "." "test-ioerror.txt"
+  hPutStr h $ unlines [show i | i <- [1..10 :: Int]]
+  hClose h
+  vs <- Ops.initializeViewer path 5
+  closeLineCache (vsCache vs)
+  removeFile path
+  vs' <- Ops.scrollDown vs
+  return $ vsError vs' /= Nothing
+
+-- ============================================================================
 -- MAIN
 -- ============================================================================
 
@@ -483,6 +533,13 @@ main = bracket
     runTest "24. pageUp on short file does nothing" testPageUpShortFileDoesNothing
     runTest "25. pageDown at EOF does nothing" testPageDownPartialPage
     runTest "26. pageUp returns full page from near-BOF" testPageUpPartialPage
+    
+    putStrLn "\n--- IO Error Propagation ---"
+    runTest "27. applyLoad with LoadFailed preserves viewport and sets vsError" testApplyLoadWithLoadFailed
+    runTest "28. applyScrollDown with LoadFailed preserves viewport and sets vsError" testApplyScrollDownWithLoadFailed
+    runTest "29. applyScrollUp with LoadFailed preserves viewport and sets vsError" testApplyScrollUpWithLoadFailed
+    runTest "30. applyLoad with LinesLoaded clears vsError" testApplyLoadClearsError
+    runTest "31. scrollDown on deleted file sets vsError" testScrollDownOnDeletedFile
     
     putStrLn "\n================================"
   )

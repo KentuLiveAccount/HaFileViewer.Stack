@@ -5,6 +5,7 @@ module Main (main) where
 import Test.Hspec
 import System.IO.Temp (withSystemTempFile)
 import System.IO
+import System.Directory (removeFile)
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
 import HaFileViewer.Backend.LineCache
@@ -101,6 +102,36 @@ spec = describe "CR-LF Regression Tests" $ do
         lastLine2 `shouldBe` "Line 20 has content"
         
         closeLineCache cache
+
+  describe "IO error handling" $ do
+    it "getLinesFromStart returns LoadFailed when file is deleted after open" $ do
+      (path, h) <- openTempFile "." "test-deleted.txt"
+      hPutStr h "line1\nline2\nline3\n"
+      hClose h
+      cache <- openLineCache path
+      removeFile path
+      result <- getLinesFromStart cache 10
+      result `shouldSatisfy` (\r -> case r of LoadFailed _ -> True; _ -> False)
+
+    it "getLinesFromEnd returns LoadFailed when file is deleted after open" $ do
+      (path, h) <- openTempFile "." "test-deleted.txt"
+      hPutStr h "line1\nline2\nline3\n"
+      hClose h
+      cache <- openLineCache path
+      removeFile path
+      result <- getLinesFromEnd cache 10
+      result `shouldSatisfy` (\r -> case r of LoadFailed _ -> True; _ -> False)
+
+    it "getLinesFrom returns LoadFailed when file is deleted after open" $ do
+      (path, h) <- openTempFile "." "test-deleted.txt"
+      hPutStr h "line1\nline2\nline3\nline4\nline5\n"
+      hClose h
+      cache <- openLineCache path
+      (_, _, botPos) <- unwrap =<< getLinesFromStart cache 5
+      closeLineCache cache
+      removeFile path
+      result <- getLinesFrom cache botPos Forward 5 6
+      result `shouldSatisfy` (\r -> case r of LoadFailed _ -> True; _ -> False)
 
 testLines :: [String]
 testLines = ["Line 1 content", "Line 2 longer text", "Line 3 short"]

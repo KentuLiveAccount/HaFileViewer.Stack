@@ -84,5 +84,6 @@ tests:
       - temporary
       - text
       - bytestring
+      - directory
 
 
