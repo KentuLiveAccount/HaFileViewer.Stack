@@ -38,6 +38,8 @@ initializeViewer filepath viewportSize = do
             , vsViewportSize = viewportSize
             , vsFilePath     = filepath
             , vsError        = Nothing
+            , vsTabStop      = 4
+            , vsHScrollOffset = 0
             }
       return initialState
     AtBoundary -> error "Cannot initialize viewer with empty file"

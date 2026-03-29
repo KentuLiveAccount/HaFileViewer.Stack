@@ -37,6 +37,8 @@ data ViewState = ViewState
   , vsViewportSize :: Int                 -- ^ Number of lines to display
   , vsFilePath     :: FilePath            -- ^ Path to the file being viewed
   , vsError        :: Maybe String        -- ^ Last IO error, if any
+  , vsTabStop      :: Int                 -- ^ Tab stop width for display (default 4)
+  , vsHScrollOffset :: Int               -- ^ Horizontal scroll offset in columns (default 0)
   }
 
 -- | Apply a full viewport reload result to ViewState, enforcing size invariant.

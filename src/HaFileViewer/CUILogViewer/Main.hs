@@ -16,6 +16,16 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad (when)
 import qualified HaFileViewer.CUILogViewer.Operations as Ops
 
+-- | Expand tab characters to spaces aligned to tab stops
+expandTabs :: Int -> T.Text -> T.Text
+expandTabs tabWidth = T.pack . go 0 . T.unpack
+  where
+    go _ [] = []
+    go col ('\t':cs) =
+      let spaces = tabWidth - (col `mod` tabWidth)
+      in replicate spaces ' ' ++ go (col + spaces) cs
+    go col (c:cs) = c : go (col + 1) cs
+
 -- Name type for brick
 data Name = ViewportName deriving (Ord, Show, Eq)
 
@@ -28,10 +38,12 @@ drawUI vs = [viewport]
                   then [str "(empty file)"]
                   else map renderLine (vsViewport vs)
     renderLine (lineNum, text) = 
-      hBox [ padLeft (Pad 1) $ str (show lineNum)
-           , str ": "
-           , txt text
-           ]
+      let expanded = expandTabs (vsTabStop vs) text
+          scrolled = T.drop (vsHScrollOffset vs) expanded
+      in hBox [ padLeft (Pad 1) $ str (show lineNum)
+              , str ": "
+              , txt scrolled
+              ]
     
     -- Calculate position indicator
     cursor = vsCursor vs
@@ -54,7 +66,7 @@ drawUI vs = [viewport]
       , str lineInfo
       , errorInfo
       , str "  |  "
-      , str "q:quit g:top G:end ↑↓:scroll PgUp/Dn:page"
+      , str "q:quit g:top G:end ↑↓:scroll ←→:pan PgUp/Dn:page 0:col0"
       ]
     
     -- Full viewport
@@ -124,6 +136,23 @@ handleEvent (VtyEvent (V.EvKey (V.KChar 'G') [])) = do
   vs <- get
   vs' <- liftIO (Ops.jumpToEnd vs)
   put vs'
+
+-- Horizontal scroll (← → or h l)
+handleEvent (VtyEvent (V.EvKey V.KRight [])) = do
+  vs <- get
+  put vs { vsHScrollOffset = vsHScrollOffset vs + 1 }
+handleEvent (VtyEvent (V.EvKey (V.KChar 'l') [])) = do
+  vs <- get
+  put vs { vsHScrollOffset = vsHScrollOffset vs + 1 }
+handleEvent (VtyEvent (V.EvKey V.KLeft [])) = do
+  vs <- get
+  put vs { vsHScrollOffset = max 0 (vsHScrollOffset vs - 1) }
+handleEvent (VtyEvent (V.EvKey (V.KChar 'h') [])) = do
+  vs <- get
+  put vs { vsHScrollOffset = max 0 (vsHScrollOffset vs - 1) }
+handleEvent (VtyEvent (V.EvKey (V.KChar '0') [])) = do
+  vs <- get
+  put vs { vsHScrollOffset = 0 }
 
 -- Handle terminal resize
 handleEvent (VtyEvent (V.EvResize width height)) = do

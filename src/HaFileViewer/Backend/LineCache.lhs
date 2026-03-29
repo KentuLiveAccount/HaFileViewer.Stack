@@ -130,7 +130,7 @@ Data Types
 >   , lcTotalLines  :: IORef (Maybe Integer)
 >     
 >     -- Frontier tracking for zone-meeting total-line detection
->   , lcForwardHighOff       :: IORef Offset                   -- ^ Byte offset after last forward-scanned line
+>   , lcForwardHighOff  :: IORef Offset    -- ^ Byte offset after last forward-scanned line
 >   , lcFwdLineCount    :: IORef Int       -- ^ Lines scanned forward from BOF
 >   , lcBackwardLowOff  :: IORef Offset    -- ^ Byte offset OF first backward line
 >   , lcBwdLineCount    :: IORef Int       -- ^ Lines scanned backward from EOF
