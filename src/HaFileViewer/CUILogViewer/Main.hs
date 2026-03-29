@@ -3,7 +3,7 @@
 module Main where
 
 import Brick
-import Brick.Main (App(..), defaultMain, halt)
+import Brick.Main (App(..), defaultMain, halt, getVtyHandle)
 import Brick.Types (BrickEvent(..), EventM)
 import Brick.Widgets.Border (hBorder, hBorderWithLabel)
 import qualified Graphics.Vty as V
@@ -87,76 +87,41 @@ handleEvent (VtyEvent (V.EvKey (V.KChar 'q') [])) = halt
 handleEvent (VtyEvent (V.EvKey V.KEsc [])) = halt
 
 -- Scroll down (↓ or j)
-handleEvent (VtyEvent (V.EvKey V.KDown [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.scrollDown vs)
-  put vs'
-handleEvent (VtyEvent (V.EvKey (V.KChar 'j') [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.scrollDown vs)
-  put vs'
+handleEvent (VtyEvent (V.EvKey V.KDown [])) = scrollOp Ops.scrollDown
+handleEvent (VtyEvent (V.EvKey (V.KChar 'j') [])) = scrollOp Ops.scrollDown
 
 -- Scroll up (↑ or k)
-handleEvent (VtyEvent (V.EvKey V.KUp [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.scrollUp vs)
-  put vs'
-handleEvent (VtyEvent (V.EvKey (V.KChar 'k') [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.scrollUp vs)
-  put vs'
+handleEvent (VtyEvent (V.EvKey V.KUp [])) = scrollOp Ops.scrollUp
+handleEvent (VtyEvent (V.EvKey (V.KChar 'k') [])) = scrollOp Ops.scrollUp
 
 -- Page down (PgDn)
-handleEvent (VtyEvent (V.EvKey V.KPageDown [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.pageDown vs)
-  put vs'
+handleEvent (VtyEvent (V.EvKey V.KPageDown [])) = scrollOp Ops.pageDown
 
 -- Page up (PgUp)
-handleEvent (VtyEvent (V.EvKey V.KPageUp [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.pageUp vs)
-  put vs'
+handleEvent (VtyEvent (V.EvKey V.KPageUp [])) = scrollOp Ops.pageUp
 
 -- Jump to start (Home or g)
-handleEvent (VtyEvent (V.EvKey V.KHome [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.jumpToStart vs)
-  put vs'
-handleEvent (VtyEvent (V.EvKey (V.KChar 'g') [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.jumpToStart vs)
-  put vs'
+handleEvent (VtyEvent (V.EvKey V.KHome [])) = scrollOp Ops.jumpToStart
+handleEvent (VtyEvent (V.EvKey (V.KChar 'g') [])) = scrollOp Ops.jumpToStart
 
 -- Jump to end (End or G)
-handleEvent (VtyEvent (V.EvKey V.KEnd [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.jumpToEnd vs)
-  put vs'
-handleEvent (VtyEvent (V.EvKey (V.KChar 'G') [])) = do
-  vs <- get
-  vs' <- liftIO (Ops.jumpToEnd vs)
-  put vs'
+handleEvent (VtyEvent (V.EvKey V.KEnd [])) = scrollOp Ops.jumpToEnd
+handleEvent (VtyEvent (V.EvKey (V.KChar 'G') [])) = scrollOp Ops.jumpToEnd
 
 -- Horizontal scroll (← → or h l)
-handleEvent (VtyEvent (V.EvKey V.KRight [])) = do
-  vs <- get
-  put vs { vsHScrollOffset = vsHScrollOffset vs + 1 }
-handleEvent (VtyEvent (V.EvKey (V.KChar 'l') [])) = do
-  vs <- get
-  put vs { vsHScrollOffset = vsHScrollOffset vs + 1 }
-handleEvent (VtyEvent (V.EvKey V.KLeft [])) = do
-  vs <- get
-  put vs { vsHScrollOffset = max 0 (vsHScrollOffset vs - 1) }
-handleEvent (VtyEvent (V.EvKey (V.KChar 'h') [])) = do
-  vs <- get
-  put vs { vsHScrollOffset = max 0 (vsHScrollOffset vs - 1) }
-handleEvent (VtyEvent (V.EvKey (V.KChar '0') [])) = do
-  vs <- get
-  put vs { vsHScrollOffset = 0 }
+handleEvent (VtyEvent (V.EvKey V.KRight [])) =
+  modify (\vs -> vs { vsHScrollOffset = vsHScrollOffset vs + 1 })
+handleEvent (VtyEvent (V.EvKey (V.KChar 'l') [])) =
+  modify (\vs -> vs { vsHScrollOffset = vsHScrollOffset vs + 1 })
+handleEvent (VtyEvent (V.EvKey V.KLeft [])) =
+  modify (\vs -> vs { vsHScrollOffset = max 0 (vsHScrollOffset vs - 1) })
+handleEvent (VtyEvent (V.EvKey (V.KChar 'h') [])) =
+  modify (\vs -> vs { vsHScrollOffset = max 0 (vsHScrollOffset vs - 1) })
+handleEvent (VtyEvent (V.EvKey (V.KChar '0') [])) =
+  modify (\vs -> vs { vsHScrollOffset = 0 })
 
 -- Handle terminal resize
-handleEvent (VtyEvent (V.EvResize width height)) = do
+handleEvent (VtyEvent (V.EvResize _width height)) = do
   vs <- get
   let uiChrome = 3  -- Top border + bottom border + status bar
       newViewportSize = max 5 (height - uiChrome)
@@ -165,6 +130,25 @@ handleEvent (VtyEvent (V.EvResize width height)) = do
     put vs'
 
 handleEvent _ = return ()
+
+-- | Run a scroll operation (IO-based) and drain buffered input events
+scrollOp :: (ViewState -> IO ViewState) -> EventM Name ViewState ()
+scrollOp op = do
+  vs <- get
+  vs' <- liftIO (op vs)
+  put vs'
+  drainEvents
+
+-- | Discard any pending input events to prevent scroll lag
+drainEvents :: EventM Name ViewState ()
+drainEvents = do
+  vty <- getVtyHandle
+  let drain = do
+        mev <- V.nextEventNonblocking vty
+        case mev of
+          Just _  -> drain
+          Nothing -> return ()
+  liftIO drain
 
 -- Brick app definition
 app :: App ViewState e Name
