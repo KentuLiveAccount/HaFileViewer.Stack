@@ -40,8 +40,9 @@ drawUI vs = [viewport]
     renderLine (lineNum, text) = 
       let expanded = expandTabs (vsTabStop vs) text
           scrolled = T.drop (vsHScrollOffset vs) expanded
-      in hBox [ padLeft (Pad 1) $ str (show lineNum)
-              , str ": "
+          lineNumStr = let s = show lineNum in replicate (6 - length s) ' ' ++ s
+      in hBox [ str lineNumStr
+              , str " "
               , txt scrolled
               ]
     
