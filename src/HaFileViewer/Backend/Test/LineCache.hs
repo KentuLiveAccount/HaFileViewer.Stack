@@ -133,6 +133,95 @@ spec = describe "CR-LF Regression Tests" $ do
       result <- getLinesFrom cache botPos Forward 5 6
       result `shouldSatisfy` (\r -> case r of LoadFailed _ -> True; _ -> False)
 
+  describe "Total line count detection" $ do
+    -- 20-line file used throughout. Each line is "Line N\n" (7-8 bytes).
+    --
+    -- Semantics of topPos/startLineNum:
+    --   topPos.lpOffset  = byte offset OF the topmost line (inclusive)
+    --   backward scan    = scans region [0, topPos.lpOffset) — EXCLUDES the line at topPos
+    --   startLineNum     = line number of the LAST line in the result (= lineAtTopPos - 1)
+    --
+    -- Case 1: getLinesFromStart 30 on 20-line file
+    --   → returns 20 lines [1..20], fewer than 30 requested → EOF detected
+    --   → lcTotalLines = 20
+    --   → getLinesFromEnd 5 now returns [16..20] (positive)
+    --
+    -- Case 2: getLinesFromEnd 5, then getLinesFrom Backward 20 (-6)
+    --   Step 1: getLinesFromEnd 5
+    --     → lines [-5..-1], topPos = offset of line 16 (= line -5)
+    --     → lcBackwardLowOff = offset(line 16), lcBackwardCount = 5
+    --   Step 2: getLinesFrom topPos Backward 20 (-6)
+    --     → startLineNum = -6 (one before -5, the line just above topPos)
+    --     → scans [0, offset(line 16)) → returns 15 lines (lines 1-15)
+    --     → line numbers [-20..-6], newTopOffset = offset(line 1) = 0 → BOF!
+    --     → lcBackwardCount += 15 = 20, lcBackwardLowOff = 0
+    --     → topOffset == 0 → total = lcBackwardCount = 20
+    --   → getLinesFromEnd 5 now returns [16..20] (positive)
+    --
+    -- Case 3: getLinesFromStart 12, then getLinesFromEnd 12
+    --   Step 1: getLinesFromStart 12
+    --     → lines [1..12], lcForwardHighOff = offset after line 12, lcForwardMaxLine = 12
+    --   Step 2: getLinesFromEnd 12
+    --     → lines [-12..-1] = lines [9..20] in truth
+    --     → lcBackwardLowOff = offset(line 9), lcBackwardCount = 12
+    --     → forwardHighOff (after line 12) >= backwardLowOff (start of line 9) → overlap!
+    --     → total = lcForwardMaxLine + lcBackwardCount = 12 + 12 = 24? NO — overlapping.
+    --   NOTE: The formula total = fwdMax + bwdCnt is only valid when zones are
+    --   NON-overlapping (adjacent). With 12+12 on a 20-line file, zones overlap by 4 lines.
+    --   Correct detection requires byte offsets: when forwardHighOff >= backwardLowOff,
+    --   the forward zone has consumed lines that the backward zone also counted.
+    --   Total must be computed differently — see implementation notes.
+    --   For now the test just checks positivity; exact value [16..20] will be added
+    --   once the correct formula is established.
+    --
+    -- Case 4: same as case 3 with order reversed.
+
+    it "getLinesFromStart reaching EOF sets total (case 1)" $
+      with20LineFile $ \path -> do
+        cache <- openLineCache path
+        -- Request more than file has → EOF → total = 20
+        _ <- getLinesFromStart cache 30
+        (lines1, _, _) <- unwrap =<< getLinesFromEnd cache 5
+        length lines1 `shouldBe` 5
+        map fst lines1 `shouldBe` [16..20]
+        closeLineCache cache
+
+    it "getLinesFrom backward reaching BOF sets total (case 2)" $
+      with20LineFile $ \path -> do
+        cache <- openLineCache path
+        -- Step 1: get last 5 lines [-5..-1]; topPos = offset OF line -5 (line 16)
+        (_, topPos, _) <- unwrap =<< getLinesFromEnd cache 5
+        -- Step 2: scan backward from topPos, startLineNum = -6 (one before -5)
+        --   scans [0, offset(line16)) = lines 1-15, returns 15 < 20 → BOF reached
+        --   lcBackwardCount = 5 + 15 = 20, topOffset = 0 → total = 20
+        _ <- getLinesFrom cache topPos Backward 20 (-6)
+        (lines2, _, _) <- unwrap =<< getLinesFromEnd cache 5
+        length lines2 `shouldBe` 5
+        map fst lines2 `shouldBe` [16..20]
+
+    it "Forward and backward frontiers meeting sets total (case 3)" $
+      with20LineFile $ \path -> do
+        cache <- openLineCache path
+        -- Forward: lines [1..12], lcForwardHighOff = byte after line 12, lcForwardMaxLine = 12
+        _ <- getLinesFromStart cache 12
+        -- Backward: lines [-12..-1], lcBackwardLowOff = offset(line 9), lcBackwardCount = 12
+        -- Byte offset after line 12 >= offset of line 9 → zones overlap → total known
+        _ <- getLinesFromEnd cache 12
+        (lines1, _, _) <- unwrap =<< getLinesFromEnd cache 5
+        length lines1 `shouldBe` 5
+        map fst lines1 `shouldBe` [16..20]
+
+    it "Backward then forward frontiers meeting sets total (case 4)" $
+      with20LineFile $ \path -> do
+        cache <- openLineCache path
+        -- Backward: lines [-12..-1], lcBackwardLowOff = offset(line 9), lcBackwardCount = 12
+        _ <- getLinesFromEnd cache 12
+        -- Forward: lines [1..12], lcForwardHighOff = byte after line 12 → zones overlap → total known
+        _ <- getLinesFromStart cache 12
+        (lines1, _, _) <- unwrap =<< getLinesFromEnd cache 5
+        length lines1 `shouldBe` 5
+        map fst lines1 `shouldBe` [16..20]
+
 testLines :: [String]
 testLines = ["Line 1 content", "Line 2 longer text", "Line 3 short"]
 
@@ -165,6 +254,16 @@ with50LineCRLFFile action =
       forM_ [1..50 :: Int] $ \i -> do
         let line = "Line " ++ show i ++ " has content"
         hPutStr h2 (line ++ "\r\n")
+    action path
+
+with20LineFile :: (FilePath -> IO a) -> IO a
+with20LineFile action =
+  withSystemTempFile "test-20lines.txt" $ \path h -> do
+    hClose h
+    withFile path WriteMode $ \h2 -> do
+      hSetBinaryMode h2 True
+      forM_ [1..20 :: Int] $ \i ->
+        BS.hPutStr h2 (BS.pack $ map (fromIntegral . fromEnum) ("Line " ++ show i ++ "\n"))
     action path
 
 readLinesOneByOne :: LineCache -> LinePosition -> Integer -> Integer -> IO [(Integer, T.Text)]
