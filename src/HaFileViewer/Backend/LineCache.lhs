@@ -131,8 +131,9 @@ Data Types
 >     
 >     -- Frontier tracking for zone-meeting total-line detection
 >   , lcForwardHighOff       :: IORef Offset                   -- ^ Byte offset after last forward-scanned line
->   , lcForwardLineOffsets   :: IORef (Map.Map Offset Integer) -- ^ Forward scan: offset -> absolute line number
->   , lcBackwardLineOffsets  :: IORef (Map.Map Offset Integer) -- ^ Backward scan: offset -> negative line number
+>   , lcFwdLineCount    :: IORef Int       -- ^ Lines scanned forward from BOF
+>   , lcBackwardLowOff  :: IORef Offset    -- ^ Byte offset OF first backward line
+>   , lcBwdLineCount    :: IORef Int       -- ^ Lines scanned backward from EOF
 >     
 >     -- Configuration
 >   , lcConfig      :: CacheConfig
@@ -200,8 +201,9 @@ Creation and Lifecycle
 >   lruOrder <- newIORef []
 >   totalLines <- newIORef Nothing
 >   forwardHighOff      <- newIORef 0
->   forwardLineOffsets  <- newIORef Map.empty
->   backwardLineOffsets <- newIORef Map.empty
+>   fwdLineCount <- newIORef 0
+>   backwardLowOff <- newIORef (toInteger (maxBound :: Int))
+>   bwdLineCount <- newIORef 0
 >   
 >   return $ LineCache
 >     { lcFilePath = path
@@ -216,8 +218,9 @@ Creation and Lifecycle
 >     , lcMaxContent = ccMaxContent config
 >     , lcTotalLines = totalLines
 >     , lcForwardHighOff      = forwardHighOff
->     , lcForwardLineOffsets  = forwardLineOffsets
->     , lcBackwardLineOffsets = backwardLineOffsets
+>     , lcFwdLineCount    = fwdLineCount
+>     , lcBackwardLowOff  = backwardLowOff
+>     , lcBwdLineCount    = bwdLineCount
 >     , lcConfig = config
 >     }
 
@@ -307,17 +310,17 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Use scanLinesWithOffsets to get lines with their byte offsets
 >   linesWithOffsets <- scanLinesWithOffsets Forward (lcFileSize lc) readFn count
 >   
->   -- Cache lines by offset
+>   -- Cache ALL raw lines by offset
 >   forM_ linesWithOffsets $ \(text, offset) ->
 >     insertWithEviction lc offset text
 >   
->   -- Generate line numbers starting from 1
+>   -- Generate line numbers from raw results (caller sees all lines)
 >   let lineNumbers = calculateForwardLineNumbers 1 (length linesWithOffsets)
 >       result = zip lineNumbers (map fst linesWithOffsets)
 >   
->   -- If we got fewer lines than requested, we've hit EOF — record total
->   when (length result < count) $
->     writeIORef (lcTotalLines lc) (Just $ fromIntegral (length result))
+>   -- If raw scan returned fewer than requested, we've hit EOF — record total
+>   when (length linesWithOffsets < count) $
+>     writeIORef (lcTotalLines lc) (Just $ fromIntegral (length linesWithOffsets))
 >   
 >   -- Update sparse index with line number → offset mappings
 >   let indexStep = lcIndexStep lc
@@ -327,7 +330,7 @@ along with content, and an opaque position marker for resuming reads.
 >   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
 >   writeIORef (lcSparseIdx lc) sparseIdx'
 >   
->   -- Calculate TWO positions
+>   -- Calculate TWO positions from raw results
 >   let topOffset = if null linesWithOffsets then 0 else snd (head linesWithOffsets)
 >       bottomOffset = if null linesWithOffsets 
 >                      then 0 
@@ -339,11 +342,17 @@ along with content, and an opaque position marker for resuming reads.
 >       topPos = LinePosition topOffset FromStart
 >       bottomPos = LinePosition bottomOffset FromStart
 >   
->   -- Update forward frontier
+>   -- Update forward frontier using capped subset (non-overlapping zone only)
 >   unless (null result) $ do
->     let forwardEntries = [(off, n) | ((_, off), n) <- zip linesWithOffsets lineNumbers]
->     modifyIORef' (lcForwardLineOffsets lc) (Map.union (Map.fromList forwardEntries))
->     modifyIORef' (lcForwardHighOff lc) (max bottomOffset)
+>     bwdLow <- readIORef (lcBackwardLowOff lc)
+>     let cappedForFrontier = takeWhile (\(_, off) -> off < bwdLow) linesWithOffsets
+>     unless (null cappedForFrontier) $ do
+>       let cappedBottomOff = let (lastText, lastOff) = last cappedForFrontier
+>                                 textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
+>                                 lineEndLen = fromIntegral (lcLineEndingLen lc)
+>                             in lastOff + textLen + lineEndLen
+>       modifyIORef' (lcForwardHighOff lc) (max cappedBottomOff)
+>       modifyIORef' (lcFwdLineCount lc) (max (length cappedForFrontier))
 >     checkFrontierOverlap lc
 >
 >   return (result, topPos, bottomPos)
@@ -376,12 +385,12 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Use scanLinesWithOffsets in backward mode
 >   linesWithOffsets <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
 >   
->   -- Cache lines by offset
+>   -- Cache ALL raw lines by offset
 >   forM_ linesWithOffsets $ \(text, offset) ->
 >     insertWithEviction lc offset text
 >   
 >   mTotal <- readIORef (lcTotalLines lc)
->   -- Generate line numbers: positive if total known, negative otherwise
+>   -- Generate line numbers from raw results (caller sees all lines)
 >   let lineNumbers = calculateBackwardLineNumbers (length linesWithOffsets) mTotal
 >       result = zip lineNumbers (map fst linesWithOffsets)
 >   
@@ -393,7 +402,7 @@ along with content, and an opaque position marker for resuming reads.
 >   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
 >   writeIORef (lcSparseIdx lc) sparseIdx'
 >   
->   -- Calculate TWO positions
+>   -- Calculate TWO positions from raw results
 >   let fileSize = lcFileSize lc
 >       topOffset = if null linesWithOffsets then fileSize else snd (head linesWithOffsets)
 >       bottomOffset = if null linesWithOffsets
@@ -406,13 +415,17 @@ along with content, and an opaque position marker for resuming reads.
 >       topPos = LinePosition topOffset FromEnd
 >       bottomPos = LinePosition bottomOffset FromEnd
 >
->   -- Update backward frontier
->   unless (null result) $ do
->     let backwardEntries = [(off, n) | ((_, off), n) <- zip linesWithOffsets lineNumbers]
->     modifyIORef' (lcBackwardLineOffsets lc) (Map.union (Map.fromList backwardEntries))
->     when (topOffset == 0) $ do
->       bwdSize <- Map.size <$> readIORef (lcBackwardLineOffsets lc)
->       writeIORef (lcTotalLines lc) (Just (fromIntegral bwdSize))
+>   -- Update backward frontier using capped subset (non-overlapping zone only)
+>   unless (null linesWithOffsets) $ do
+>     fwdHigh <- readIORef (lcForwardHighOff lc)
+>     let cappedForFrontier = dropWhile (\(_, off) -> off < fwdHigh) linesWithOffsets
+>     unless (null cappedForFrontier) $ do
+>       let cappedTopOffset = snd (head cappedForFrontier)
+>       modifyIORef' (lcBwdLineCount lc) (max (length cappedForFrontier))
+>       modifyIORef' (lcBackwardLowOff lc) (min cappedTopOffset)
+>       when (cappedTopOffset == 0) $ do
+>         bwdCnt <- readIORef (lcBwdLineCount lc)
+>         writeIORef (lcTotalLines lc) (Just (fromIntegral bwdCnt))
 >     checkFrontierOverlap lc
 >
 >   return (result, topPos, bottomPos)
@@ -453,7 +466,7 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Scan in the specified direction
 >   linesWithOffsets <- scanLinesWithOffsets dir remainingSize readFn count
 >   
->   -- Adjust offsets to be absolute and cache lines by offset
+>   -- Adjust offsets to be absolute and cache ALL raw lines by offset
 >   let adjustedLines = case dir of
 >         Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
 >         Backward -> linesWithOffsets  -- Already absolute
@@ -461,9 +474,7 @@ along with content, and an opaque position marker for resuming reads.
 >   forM_ adjustedLines $ \(text, offset) ->
 >     insertWithEviction lc offset text
 >   
->   -- Calculate line numbers for the returned lines
->   -- The caller tells us the starting line number via startLineNum parameter
->   -- For backward scans, texts are in file order, so line numbers must be too
+>   -- Calculate line numbers from raw results (caller sees all lines)
 >   mTotal <- readIORef (lcTotalLines lc)
 >   let resolveLineNum n = case (mTotal, n < 0) of
 >         (Just total, True) -> total + n + 1
@@ -475,11 +486,11 @@ along with content, and an opaque position marker for resuming reads.
 >       texts = map fst adjustedLines
 >       result = zip lineNumbers texts
 >   
->   -- If forward scan returned fewer lines than requested, we've reached EOF
->   when (dir == Forward && length result < count && not (null result)) $
->     writeIORef (lcTotalLines lc) (Just $ fst (last result))
+>   -- If forward scan returned fewer raw lines than requested, we've reached EOF
+>   when (dir == Forward && length adjustedLines < count && not (null adjustedLines)) $
+>     writeIORef (lcTotalLines lc) (Just $ startLineNum + fromIntegral (length adjustedLines) - 1)
 >   
->   -- Update sparse index
+>   -- Update sparse index from raw results
 >   let indexStep = lcIndexStep lc
 >       indexEntries = [(lineNum, offset) | ((text, offset), lineNum) <- zip adjustedLines lineNumbers,
 >                                            lineNum `mod` fromIntegral indexStep == 0]
@@ -487,9 +498,9 @@ along with content, and an opaque position marker for resuming reads.
 >   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
 >   writeIORef (lcSparseIdx lc) sparseIdx'
 >   
->   -- Calculate TWO positions
+>   -- Calculate TWO positions from raw results
 >   let topOffset = case dir of
->         Forward  -> startOffset  -- Top stays when scrolling down
+>         Forward  -> startOffset
 >         Backward -> if null adjustedLines then startOffset else snd (head adjustedLines)
 >       bottomOffset = case dir of
 >         Forward  -> if null adjustedLines 
@@ -499,24 +510,38 @@ along with content, and an opaque position marker for resuming reads.
 >                              lineEndLen = fromIntegral (lcLineEndingLen lc)
 >                          -- text + line_ending (CR-LF=2, LF=1)
 >                          in lastOff + textLen + lineEndLen
->         Backward -> startOffset  -- Bottom stays when scrolling up
+>         Backward -> startOffset
 >       topPos = LinePosition topOffset origin
 >       bottomPos = LinePosition bottomOffset origin
 >   
->   -- Update forward frontier for forward scans
->   unless (dir == Backward || null result) $ do
->     let forwardEntries = [(off, n) | ((_, off), n) <- zip adjustedLines lineNumbers]
->     modifyIORef' (lcForwardLineOffsets lc) (Map.union (Map.fromList forwardEntries))
->     modifyIORef' (lcForwardHighOff lc) (max bottomOffset)
+>   -- Update forward frontier using capped subset (non-overlapping zone only)
+>   unless (dir == Backward || null adjustedLines) $ do
+>     bwdLow <- readIORef (lcBackwardLowOff lc)
+>     let cappedForFrontier = takeWhile (\(_, off) -> off < bwdLow) adjustedLines
+>     unless (null cappedForFrontier) $ do
+>       let lastCappedLineNum = startLineNum + fromIntegral (length cappedForFrontier) - 1
+>           cappedBottomOff = let (lastText, lastOff) = last cappedForFrontier
+>                                 textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
+>                                 lineEndLen = fromIntegral (lcLineEndingLen lc)
+>                             in lastOff + textLen + lineEndLen
+>       modifyIORef' (lcForwardHighOff lc) (max cappedBottomOff)
+>       modifyIORef' (lcFwdLineCount lc) (max (fromIntegral lastCappedLineNum))
 >     checkFrontierOverlap lc
 >   
->   -- Update backward frontier for backward scans
+>   -- Update backward frontier using capped subset (non-overlapping zone only)
 >   unless (dir == Forward || null adjustedLines) $ do
->     let backwardEntries = [(off, n) | ((_, off), n) <- zip adjustedLines lineNumbers]
->     modifyIORef' (lcBackwardLineOffsets lc) (Map.union (Map.fromList backwardEntries))
->     when (topOffset == 0) $ do
->       bwdSize <- Map.size <$> readIORef (lcBackwardLineOffsets lc)
->       writeIORef (lcTotalLines lc) (Just (fromIntegral bwdSize))
+>     fwdHigh <- readIORef (lcForwardHighOff lc)
+>     let cappedForFrontier = dropWhile (\(_, off) -> off < fwdHigh) adjustedLines
+>     unless (null cappedForFrontier) $ do
+>       let cappedTopOffset = snd (head cappedForFrontier)
+>       oldLow <- readIORef (lcBackwardLowOff lc)
+>       when (cappedTopOffset < oldLow) $ do
+>         let newLines = length (takeWhile (\(_, off) -> off < oldLow) cappedForFrontier)
+>         modifyIORef' (lcBwdLineCount lc) (+ newLines)
+>         writeIORef (lcBackwardLowOff lc) cappedTopOffset
+>       when (cappedTopOffset == 0) $ do
+>         bwdCnt <- readIORef (lcBwdLineCount lc)
+>         writeIORef (lcTotalLines lc) (Just (fromIntegral bwdCnt))
 >     checkFrontierOverlap lc
 >   
 >   return (result, topPos, bottomPos)
@@ -538,8 +563,9 @@ Cache Management
 >   writeIORef (lcLRUOrder lc) []
 >   writeIORef (lcTotalLines lc) Nothing
 >   writeIORef (lcForwardHighOff lc) 0
->   writeIORef (lcForwardLineOffsets lc) Map.empty
->   writeIORef (lcBackwardLineOffsets lc) Map.empty
+>   writeIORef (lcFwdLineCount lc) 0
+>   writeIORef (lcBackwardLowOff lc) (toInteger (maxBound :: Int))
+>   writeIORef (lcBwdLineCount lc) 0
 
 > -- | Get cache statistics (for monitoring/debugging)
 > getCacheStats :: LineCache -> IO CacheStats
@@ -572,19 +598,12 @@ Internal Helper Functions
 >   case mTotal of
 >     Just _  -> return ()  -- Already known
 >     Nothing -> do
->       bwdOffsets <- readIORef (lcBackwardLineOffsets lc)
->       fwdOffsets <- readIORef (lcForwardLineOffsets lc)
->       let bwdCnt = Map.size bwdOffsets
->       when (bwdCnt > 0 && not (Map.null fwdOffsets)) $ do
->         let backwardLow = fst (Map.findMin bwdOffsets)
->         fwdHigh <- readIORef (lcForwardHighOff lc)
->         when (fwdHigh >= backwardLow) $ do
->           case Map.lookupLE backwardLow fwdOffsets of
->             Nothing -> return ()
->             Just (off, lineN) -> do
->               let m = if off == backwardLow then lineN else lineN + 1
->                   total = m + fromIntegral bwdCnt - 1
->               writeIORef (lcTotalLines lc) (Just total)
+>       fwdHigh <- readIORef (lcForwardHighOff lc)
+>       bwdLow  <- readIORef (lcBackwardLowOff lc)
+>       bwdCnt  <- readIORef (lcBwdLineCount lc)
+>       fwdCnt  <- readIORef (lcFwdLineCount lc)
+>       when (bwdCnt > 0 && fwdCnt > 0 && fwdHigh >= bwdLow) $
+>         writeIORef (lcTotalLines lc) (Just (fromIntegral fwdCnt + fromIntegral bwdCnt))
 
 
 

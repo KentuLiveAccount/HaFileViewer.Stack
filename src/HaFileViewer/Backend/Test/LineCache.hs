@@ -149,30 +149,22 @@ spec = describe "CR-LF Regression Tests" $ do
     -- Case 2: getLinesFromEnd 5, then getLinesFrom Backward 20 (-6)
     --   Step 1: getLinesFromEnd 5
     --     → lines [-5..-1], topPos = offset of line 16 (= line -5)
-    --     → lcBackwardLowOff = offset(line 16), lcBackwardCount = 5
+    --     → lcBackwardLowOff = offset(line 16), lcBwdLineCount = 5
     --   Step 2: getLinesFrom topPos Backward 20 (-6)
     --     → startLineNum = -6 (one before -5, the line just above topPos)
     --     → scans [0, offset(line 16)) → returns 15 lines (lines 1-15)
     --     → line numbers [-20..-6], newTopOffset = offset(line 1) = 0 → BOF!
-    --     → lcBackwardCount += 15 = 20, lcBackwardLowOff = 0
-    --     → topOffset == 0 → total = lcBackwardCount = 20
+    --     → lcBwdLineCount += 15 = 20, lcBackwardLowOff = 0
+    --     → topOffset == 0 → total = lcBwdLineCount = 20
     --   → getLinesFromEnd 5 now returns [16..20] (positive)
     --
     -- Case 3: getLinesFromStart 12, then getLinesFromEnd 12
     --   Step 1: getLinesFromStart 12
-    --     → lines [1..12], lcForwardHighOff = offset after line 12, lcForwardMaxLine = 12
+    --     → lines [1..12], lcForwardHighOff = byte after line 12, lcFwdLineCount = 12
     --   Step 2: getLinesFromEnd 12
-    --     → lines [-12..-1] = lines [9..20] in truth
-    --     → lcBackwardLowOff = offset(line 9), lcBackwardCount = 12
-    --     → forwardHighOff (after line 12) >= backwardLowOff (start of line 9) → overlap!
-    --     → total = lcForwardMaxLine + lcBackwardCount = 12 + 12 = 24? NO — overlapping.
-    --   NOTE: The formula total = fwdMax + bwdCnt is only valid when zones are
-    --   NON-overlapping (adjacent). With 12+12 on a 20-line file, zones overlap by 4 lines.
-    --   Correct detection requires byte offsets: when forwardHighOff >= backwardLowOff,
-    --   the forward zone has consumed lines that the backward zone also counted.
-    --   Total must be computed differently — see implementation notes.
-    --   For now the test just checks positivity; exact value [16..20] will be added
-    --   once the correct formula is established.
+    --     → raw lines 9-20 (12 lines), capped to lines 13-20 (8 lines) by fwdHigh
+    --     → lcBackwardLowOff = offset(line 13), lcBwdLineCount = 8
+    --     → fwdHigh >= bwdLow → overlap → total = 12 + 8 = 20
     --
     -- Case 4: same as case 3 with order reversed.
 
