@@ -282,10 +282,10 @@ Canonicalizes input by treating missing trailing newline as present.
 >   let allLinesWithOffsets = prepareFinalLinesWithOffsets strat reachedEOF (ssEndsWithLF finalState) (ssPartial finalState) (ssPartialOffset finalState) (ssLines finalState) (ssLineOffsets finalState)
 >   let (result, endOffset) = case dir of
 >         Forward ->
->           let taken = take count allLinesWithOffsets
->               endOff = if length allLinesWithOffsets > count
->                        then snd (allLinesWithOffsets !! count)
->                        else fileSize
+>           let (taken, rest) = splitAt count allLinesWithOffsets
+>               endOff = case rest of
+>                          ((_, off):_) -> off
+>                          []           -> fileSize
 >           in (taken, endOff)
 >         Backward ->
 >           let dropped = drop (max 0 (length allLinesWithOffsets - count)) allLinesWithOffsets
