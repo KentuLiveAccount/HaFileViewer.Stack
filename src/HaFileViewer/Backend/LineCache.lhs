@@ -115,7 +115,6 @@ Data Types
 >   , lcFileSize      :: Integer
 >   , lcFileModTime   :: IORef UTCTime
 >   , lcHandle        :: IORef (Maybe Handle)
->   , lcLineEndingLen :: Int  -- ^ Line ending length: 2 for CR-LF, 1 for LF-only
 >     
 >     -- Sparse index (internal optimization)
 >   , lcSparseIdx   :: IORef SI.SparseIndex
@@ -161,26 +160,6 @@ Data Types
 Creation and Lifecycle
 ----------------------
 
-> -- | Detect line ending style by checking first line in file
-> -- Returns 2 for CR-LF (Windows), 1 for LF-only (Unix)
-> detectLineEnding :: FilePath -> IO Int
-> detectLineEnding path = do
->   h <- openFile path ReadMode
->   hSetBinaryMode h True  -- Read raw bytes
->   chunk <- BS.hGet h 1024  -- Read first 1KB
->   hClose h
->   
->   -- Look for first LF and check if preceded by CR
->   let lfPos = BS.elemIndex 10 chunk  -- Find LF byte
->   case lfPos of
->     Nothing -> return 1  -- No newline found, assume LF-only
->     Just 0  -> return 1  -- LF at start, no room for CR
->     Just pos -> 
->       let prevByte = BS.index chunk (pos - 1)
->       in if prevByte == 13  -- CR byte
->          then return 2      -- CR-LF style (Windows)
->          else return 1      -- LF-only style (Unix)
-
 > -- | Open a line cache for a file (uses default configuration)
 > openLineCache :: FilePath -> IO LineCache
 > openLineCache path = openLineCacheWith path defaultConfig
@@ -190,9 +169,6 @@ Creation and Lifecycle
 > openLineCacheWith path config = do
 >   size <- getFileSize path
 >   modTime <- getModificationTime path
->   
->   -- Detect line ending style by reading first chunk
->   lineEndingLen <- detectLineEnding path
 >   
 >   modTimeRef <- newIORef modTime
 >   handleRef <- newIORef Nothing
@@ -210,7 +186,6 @@ Creation and Lifecycle
 >     , lcFileSize = size
 >     , lcFileModTime = modTimeRef
 >     , lcHandle = handleRef
->     , lcLineEndingLen = lineEndingLen
 >     , lcSparseIdx = sparseIdx
 >     , lcIndexStep = ccIndexStep config
 >     , lcContent = content
@@ -308,7 +283,7 @@ along with content, and an opaque position marker for resuming reads.
 >         BS.hGet h (fromInteger size)
 >   
 >   -- Use scanLinesWithOffsets to get lines with their byte offsets
->   linesWithOffsets <- scanLinesWithOffsets Forward (lcFileSize lc) readFn count
+>   (linesWithOffsets, endOffset) <- scanLinesWithOffsets Forward (lcFileSize lc) readFn count
 >   
 >   -- Cache ALL raw lines by offset
 >   forM_ linesWithOffsets $ \(text, offset) ->
@@ -332,13 +307,7 @@ along with content, and an opaque position marker for resuming reads.
 >   
 >   -- Calculate TWO positions from raw results
 >   let topOffset = if null linesWithOffsets then 0 else snd (head linesWithOffsets)
->       bottomOffset = if null linesWithOffsets 
->                      then 0 
->                      else let (lastText, lastOff) = last linesWithOffsets
->                               textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
->                               lineEndLen = fromIntegral (lcLineEndingLen lc)
->                           -- text + line_ending (CR-LF=2, LF=1)
->                           in lastOff + textLen + lineEndLen
+>       bottomOffset = if null linesWithOffsets then 0 else endOffset
 >       topPos = LinePosition topOffset FromStart
 >       bottomPos = LinePosition bottomOffset FromStart
 >   
@@ -347,10 +316,10 @@ along with content, and an opaque position marker for resuming reads.
 >     bwdLow <- readIORef (lcBackwardLowOff lc)
 >     let cappedForFrontier = takeWhile (\(_, off) -> off < bwdLow) linesWithOffsets
 >     unless (null cappedForFrontier) $ do
->       let cappedBottomOff = let (lastText, lastOff) = last cappedForFrontier
->                                 textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
->                                 lineEndLen = fromIntegral (lcLineEndingLen lc)
->                             in lastOff + textLen + lineEndLen
+>       let cappedCount = length cappedForFrontier
+>           cappedBottomOff = if cappedCount < length linesWithOffsets
+>                             then snd (linesWithOffsets !! cappedCount)
+>                             else endOffset
 >       modifyIORef' (lcForwardHighOff lc) (max cappedBottomOff)
 >       modifyIORef' (lcFwdLineCount lc) (max (length cappedForFrontier))
 >     checkFrontierOverlap lc
@@ -383,7 +352,7 @@ along with content, and an opaque position marker for resuming reads.
 >         BS.hGet h (fromInteger size)
 >   
 >   -- Use scanLinesWithOffsets in backward mode
->   linesWithOffsets <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
+>   (linesWithOffsets, endOffset) <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
 >   
 >   -- Cache ALL raw lines by offset
 >   forM_ linesWithOffsets $ \(text, offset) ->
@@ -405,13 +374,7 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Calculate TWO positions from raw results
 >   let fileSize = lcFileSize lc
 >       topOffset = if null linesWithOffsets then fileSize else snd (head linesWithOffsets)
->       bottomOffset = if null linesWithOffsets
->                      then fileSize
->                      else let (lastText, lastOff) = last linesWithOffsets
->                               textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
->                               lineEndLen = fromIntegral (lcLineEndingLen lc)
->                           -- text + line_ending (CR-LF=2, LF=1)
->                           in lastOff + textLen + lineEndLen
+>       bottomOffset = if null linesWithOffsets then fileSize else endOffset
 >       topPos = LinePosition topOffset FromEnd
 >       bottomPos = LinePosition bottomOffset FromEnd
 >
@@ -464,12 +427,15 @@ along with content, and an opaque position marker for resuming reads.
 >         Backward -> startOffset  -- For backward, we read from 0 to startOffset
 >   
 >   -- Scan in the specified direction
->   linesWithOffsets <- scanLinesWithOffsets dir remainingSize readFn count
+>   (rawLinesWithOffsets, rawEndOffset) <- scanLinesWithOffsets dir remainingSize readFn count
 >   
 >   -- Adjust offsets to be absolute and cache ALL raw lines by offset
 >   let adjustedLines = case dir of
->         Forward  -> [(text, startOffset + off) | (text, off) <- linesWithOffsets]
->         Backward -> linesWithOffsets  -- Already absolute
+>         Forward  -> [(text, startOffset + off) | (text, off) <- rawLinesWithOffsets]
+>         Backward -> rawLinesWithOffsets  -- Already absolute
+>       adjustedEndOffset = case dir of
+>         Forward  -> startOffset + rawEndOffset
+>         Backward -> rawEndOffset
 >   
 >   forM_ adjustedLines $ \(text, offset) ->
 >     insertWithEviction lc offset text
@@ -503,13 +469,7 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> startOffset
 >         Backward -> if null adjustedLines then startOffset else snd (head adjustedLines)
 >       bottomOffset = case dir of
->         Forward  -> if null adjustedLines 
->                     then startOffset
->                     else let (lastText, lastOff) = last adjustedLines
->                              textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
->                              lineEndLen = fromIntegral (lcLineEndingLen lc)
->                          -- text + line_ending (CR-LF=2, LF=1)
->                          in lastOff + textLen + lineEndLen
+>         Forward  -> if null adjustedLines then startOffset else adjustedEndOffset
 >         Backward -> startOffset
 >       topPos = LinePosition topOffset origin
 >       bottomPos = LinePosition bottomOffset origin
@@ -520,10 +480,10 @@ along with content, and an opaque position marker for resuming reads.
 >     let cappedForFrontier = takeWhile (\(_, off) -> off < bwdLow) adjustedLines
 >     unless (null cappedForFrontier) $ do
 >       let lastCappedLineNum = startLineNum + fromIntegral (length cappedForFrontier) - 1
->           cappedBottomOff = let (lastText, lastOff) = last cappedForFrontier
->                                 textLen = fromIntegral (BS.length $ TE.encodeUtf8 lastText)
->                                 lineEndLen = fromIntegral (lcLineEndingLen lc)
->                             in lastOff + textLen + lineEndLen
+>           cappedCount = length cappedForFrontier
+>           cappedBottomOff = if cappedCount < length adjustedLines
+>                             then snd (adjustedLines !! cappedCount)
+>                             else adjustedEndOffset
 >       modifyIORef' (lcForwardHighOff lc) (max cappedBottomOff)
 >       modifyIORef' (lcFwdLineCount lc) (max (fromIntegral lastCappedLineNum))
 >     checkFrontierOverlap lc

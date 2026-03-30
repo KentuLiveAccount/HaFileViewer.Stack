@@ -289,13 +289,14 @@ Canonicalizes input by treating missing trailing newline as present.
 New API: scanLines with offset tracking
 ----------------------------------------
 
-Identical to scanLines but returns byte offsets for each line.
+Identical to scanLines but returns byte offsets for each line,
+plus an end offset indicating where the next line would start.
 
 > scanLinesWithOffsets :: Direction                    -- ^ Scan direction
 >                      -> Integer                      -- ^ File size
 >                      -> (Offset -> Integer -> IO BS.ByteString)  -- ^ Read function
 >                      -> Int                          -- ^ Number of lines to collect
->                      -> IO [(T.Text, Offset)]        -- ^ Collected lines with offsets
+>                      -> IO ([(T.Text, Offset)], Offset)  -- ^ (lines with offsets, end offset)
 > scanLinesWithOffsets dir fileSize readFn count = do
 >   let strat = getStrategy dir
 >   endsWithLF <- checkFileEndsWithLF fileSize readFn
@@ -303,11 +304,17 @@ Identical to scanLines but returns byte offsets for each line.
 >   finalState <- scanLoopWithOffsets strat readFn count initialState
 >   let reachedEOF = not (stratHasMore strat finalState)
 >   let allLinesWithOffsets = prepareFinalLinesWithOffsets strat reachedEOF (ssEndsWithLF finalState) (ssPartial finalState) (ssPartialOffset finalState) (ssLines finalState) (ssLineOffsets finalState)
->   -- For backward, we want the LAST count lines; for forward, the FIRST count lines
->   let result = case dir of
->         Forward  -> take count allLinesWithOffsets
->         Backward -> drop (max 0 (length allLinesWithOffsets - count)) allLinesWithOffsets
->   return result
+>   let (result, endOffset) = case dir of
+>         Forward ->
+>           let taken = take count allLinesWithOffsets
+>               endOff = if length allLinesWithOffsets > count
+>                        then snd (allLinesWithOffsets !! count)
+>                        else fileSize
+>           in (taken, endOff)
+>         Backward ->
+>           let dropped = drop (max 0 (length allLinesWithOffsets - count)) allLinesWithOffsets
+>           in (dropped, fileSize)
+>   return (result, endOffset)
 
 Scanning loop that tracks offsets for each line.
 
