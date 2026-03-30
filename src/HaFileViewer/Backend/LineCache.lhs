@@ -73,7 +73,7 @@ Performance Characteristics:
 > import Control.Monad (when, unless, forM_)
 > 
 > import HaFileViewer.Backend.BidirectionalScanner 
->   ( scanLines, scanLinesWithOffsets, Direction(..) )
+>   ( scanLinesWithOffsets, Direction(..) )
 > import HaFileViewer.Backend.Types (Offset)
 > import qualified HaFileViewer.Backend.SparseIndex as SI
 

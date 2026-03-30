@@ -23,11 +23,12 @@ withTempFile content action =
     hClose h
     action path
 
--- Helper: scan with auto-detected file size
+-- Helper: scan with auto-detected file size, discarding offsets
 scanLinesAuto :: Direction -> FilePath -> Int -> IO [T.Text]
 scanLinesAuto dir path count = do
   size <- fromIntegral . BS.length <$> BS.readFile path
-  scanLines dir size (readFromFile path) count
+  (lines', _endOffset) <- scanLinesWithOffsets dir size (readFromFile path) count
+  return (map fst lines')
 
 main :: IO ()
 main = hspec spec
@@ -38,8 +39,8 @@ spec = describe "HaFileViewer.BidirectionalScanner" $ do
   describe "Forward scanning" $ do
     it "reads lines from start of file" $
       withTempFile "line1\nline2\nline3\n" $ \path -> do
-        result <- scanLines Forward 18 (readFromFile path) 2
-        result `shouldBe` ["line1", "line2"]
+        (lines', _) <- scanLinesWithOffsets Forward 18 (readFromFile path) 2
+        map fst lines' `shouldBe` ["line1", "line2"]
     
     it "handles file with trailing newline" $
       withTempFile "a\nb\nc\n" $ \path -> do
@@ -53,23 +54,23 @@ spec = describe "HaFileViewer.BidirectionalScanner" $ do
     
     it "handles single line with newline" $
       withTempFile "single\n" $ \path -> do
-        result <- scanLines Forward 7 (readFromFile path) 1
-        result `shouldBe` ["single"]
+        (lines', _) <- scanLinesWithOffsets Forward 7 (readFromFile path) 1
+        map fst lines' `shouldBe` ["single"]
     
     it "handles single line without newline" $
       withTempFile "single" $ \path -> do
-        result <- scanLines Forward 6 (readFromFile path) 1
-        result `shouldBe` ["single"]
+        (lines', _) <- scanLinesWithOffsets Forward 6 (readFromFile path) 1
+        map fst lines' `shouldBe` ["single"]
     
     it "handles empty file" $
       withTempFile "" $ \path -> do
-        result <- scanLines Forward 0 (readFromFile path) 1
-        result `shouldBe` ([] :: [T.Text])
+        (lines', _) <- scanLinesWithOffsets Forward 0 (readFromFile path) 1
+        map fst lines' `shouldBe` ([] :: [T.Text])
     
     it "stops when requested count is reached" $
       withTempFile "1\n2\n3\n4\n5\n" $ \path -> do
-        result <- scanLines Forward 10 (readFromFile path) 3
-        result `shouldBe` ["1", "2", "3"]
+        (lines', _) <- scanLinesWithOffsets Forward 10 (readFromFile path) 3
+        map fst lines' `shouldBe` ["1", "2", "3"]
   
   describe "Backward scanning" $ do
     it "reads lines from end of file" $

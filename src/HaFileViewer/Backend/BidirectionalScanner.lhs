@@ -48,7 +48,6 @@ Module Header
 > {-# LANGUAGE RankNTypes #-}
 > module HaFileViewer.Backend.BidirectionalScanner
 >   ( Direction(..)
->   , scanLines
 >   , scanLinesWithOffsets
 >   , ChunkSize
 >   , defaultChunkSize
@@ -265,32 +264,9 @@ Check if file ends with newline by reading last byte.
 >       lastByte <- readFn (fileSize - 1) 1
 >       return $ not (BS.null lastByte) && BS.head lastByte == lfByte
 
-Scan lines in the given direction. This is the main API function.
-Canonicalizes input by treating missing trailing newline as present.
-
-> scanLines :: Direction                    -- ^ Scan direction
->           -> Integer                      -- ^ File size
->           -> (Offset -> Integer -> IO BS.ByteString)  -- ^ Read function
->           -> Int                          -- ^ Number of lines to collect
->           -> IO [T.Text]                  -- ^ Collected lines (in file order)
-> scanLines dir fileSize readFn count = do
->   let strat = getStrategy dir
->   endsWithLF <- checkFileEndsWithLF fileSize readFn
->   let initialState = initScanState strat fileSize endsWithLF
->   finalState <- scanLoop strat readFn count initialState
->   let reachedEOF = not (stratHasMore strat finalState)  -- No more file data
->   let allLines = prepareFinalLines strat reachedEOF (ssEndsWithLF finalState) (ssPartial finalState) (ssLines finalState)
->   -- For backward, we want the LAST count lines; for forward, the FIRST count lines
->   let result = case dir of
->         Forward  -> take count allLines
->         Backward -> drop (max 0 (length allLines - count)) allLines
->   return result
-
-New API: scanLines with offset tracking
-----------------------------------------
-
-Identical to scanLines but returns byte offsets for each line,
+Scan lines in the given direction, returning byte offsets for each line
 plus an end offset indicating where the next line would start.
+Canonicalizes input by treating missing trailing newline as present.
 
 > scanLinesWithOffsets :: Direction                    -- ^ Scan direction
 >                      -> Integer                      -- ^ File size
@@ -356,23 +332,7 @@ Solution: Store offsets DURING scanning, use them here without modification.
 >                             RightPartial -> partialOffset : rawOffsets
 >   in zip finalLines finalOffsets
 
-Main scanning loop - now fully generic using strategy.
-
-> scanLoop :: ScanStrategy
->          -> (Offset -> Integer -> IO BS.ByteString)
->          -> Int
->          -> ScanState
->          -> IO ScanState
-> scanLoop strat readFn targetCount state
->   | ssLineCount state >= targetCount = return state
->   | not (stratHasMore strat state) = return state
->   | otherwise = do
->       let (readStart, readSize) = stratCalcRead strat defaultChunkSize state
->       chunk <- readFn readStart readSize
->       let newState = processChunk strat chunk state
->       scanLoop strat readFn targetCount newState
-
-Calculate byte offset for the start of each piece after splitting on LF.
+Calculatebyte offset for the start of each piece after splitting on LF.
 Each piece is separated by LF (1 byte), so offsets account for these delimiters.
 
 CRITICAL: startOffset must be the byte position where the chunk STARTS in the file.
