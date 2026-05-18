@@ -490,6 +490,86 @@ testScrollDownOnDeletedFile = do
   return $ vsError vs' /= Nothing
 
 -- ============================================================================
+-- EMPTY FILE TESTS
+-- ============================================================================
+
+-- | Run an action against a freshly-created empty file, then clean up.
+withEmptyFile :: (FilePath -> IO a) -> IO a
+withEmptyFile action = do
+  (path, h) <- openTempFile "." "test-empty.txt"
+  hClose h  -- Close immediately, leaving a zero-byte file
+  result <- action path
+  removeFile path
+  return result
+
+-- Test 32: initializeViewer on empty file returns graceful empty state
+testEmptyFileInit :: IO Bool
+testEmptyFileInit = withEmptyFile $ \path -> do
+  vs <- Ops.initializeViewer path 25
+  closeLineCache (vsCache vs)
+  return $ null (vsViewport vs)
+        && vsError vs == Nothing
+        && vsFilePath vs == path
+
+-- Test 33: scrollDown on empty file is a no-op (no crash, no error)
+testEmptyFileScrollDown :: IO Bool
+testEmptyFileScrollDown = withEmptyFile $ \path -> do
+  vs <- Ops.initializeViewer path 25
+  vs' <- Ops.scrollDown vs
+  closeLineCache (vsCache vs')
+  return $ null (vsViewport vs') && vsError vs' == Nothing
+
+-- Test 34: scrollUp on empty file is a no-op
+testEmptyFileScrollUp :: IO Bool
+testEmptyFileScrollUp = withEmptyFile $ \path -> do
+  vs <- Ops.initializeViewer path 25
+  vs' <- Ops.scrollUp vs
+  closeLineCache (vsCache vs')
+  return $ null (vsViewport vs') && vsError vs' == Nothing
+
+-- Test 35: pageDown on empty file is a no-op
+testEmptyFilePageDown :: IO Bool
+testEmptyFilePageDown = withEmptyFile $ \path -> do
+  vs <- Ops.initializeViewer path 25
+  vs' <- Ops.pageDown vs
+  closeLineCache (vsCache vs')
+  return $ null (vsViewport vs') && vsError vs' == Nothing
+
+-- Test 36: pageUp on empty file is a no-op
+testEmptyFilePageUp :: IO Bool
+testEmptyFilePageUp = withEmptyFile $ \path -> do
+  vs <- Ops.initializeViewer path 25
+  vs' <- Ops.pageUp vs
+  closeLineCache (vsCache vs')
+  return $ null (vsViewport vs') && vsError vs' == Nothing
+
+-- Test 37: jumpToEnd on empty file remains empty without error
+testEmptyFileJumpToEnd :: IO Bool
+testEmptyFileJumpToEnd = withEmptyFile $ \path -> do
+  vs <- Ops.initializeViewer path 25
+  vs' <- Ops.jumpToEnd vs
+  closeLineCache (vsCache vs')
+  return $ null (vsViewport vs') && vsError vs' == Nothing
+
+-- Test 38: jumpToStart on empty file remains empty without error
+testEmptyFileJumpToStart :: IO Bool
+testEmptyFileJumpToStart = withEmptyFile $ \path -> do
+  vs <- Ops.initializeViewer path 25
+  vs' <- Ops.jumpToStart vs
+  closeLineCache (vsCache vs')
+  return $ null (vsViewport vs') && vsError vs' == Nothing
+
+-- Test 39: resizeViewport on empty file remains empty without error
+testEmptyFileResize :: IO Bool
+testEmptyFileResize = withEmptyFile $ \path -> do
+  vs <- Ops.initializeViewer path 25
+  vs' <- Ops.resizeViewport vs 30
+  closeLineCache (vsCache vs')
+  return $ null (vsViewport vs')
+        && vsError vs' == Nothing
+        && vsViewportSize vs' == 30
+
+-- ============================================================================
 -- MAIN
 -- ============================================================================
 
@@ -540,7 +620,17 @@ main = bracket
     runTest "29. applyScrollUp with LoadFailed preserves viewport and sets vsError" testApplyScrollUpWithLoadFailed
     runTest "30. applyLoad with LinesLoaded clears vsError" testApplyLoadClearsError
     runTest "31. scrollDown on deleted file sets vsError" testScrollDownOnDeletedFile
-    
+
+    putStrLn "\n--- Empty File ---"
+    runTest "32. initializeViewer on empty file returns graceful empty state" testEmptyFileInit
+    runTest "33. scrollDown on empty file is a no-op" testEmptyFileScrollDown
+    runTest "34. scrollUp on empty file is a no-op" testEmptyFileScrollUp
+    runTest "35. pageDown on empty file is a no-op" testEmptyFilePageDown
+    runTest "36. pageUp on empty file is a no-op" testEmptyFilePageUp
+    runTest "37. jumpToEnd on empty file remains empty without error" testEmptyFileJumpToEnd
+    runTest "38. jumpToStart on empty file remains empty without error" testEmptyFileJumpToStart
+    runTest "39. resizeViewport on empty file remains empty without error" testEmptyFileResize
+
     putStrLn "\n================================"
   )
 

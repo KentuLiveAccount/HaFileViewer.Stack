@@ -51,9 +51,11 @@ drawUI vs = [viewport]
     positionInfo = ""  -- Will be handled by line numbers
     
     -- Calculate line info using cursor line number bounds
-    lineInfo = if cursorOrigin cursor == FromStart
-               then "Lines: " ++ show (cursorFirstLine cursor) ++ "-" ++ show (cursorLastLine cursor)
-               else "Lines: " ++ show (cursorFirstLine cursor) ++ " to " ++ show (cursorLastLine cursor)
+    lineInfo = if null (vsViewport vs)
+               then "(empty file)"
+               else if cursorOrigin cursor == FromStart
+                    then "Lines: " ++ show (cursorFirstLine cursor) ++ "-" ++ show (cursorLastLine cursor)
+                    else "Lines: " ++ show (cursorFirstLine cursor) ++ " to " ++ show (cursorLastLine cursor)
     
     -- Status bar
     errorInfo = case vsError vs of

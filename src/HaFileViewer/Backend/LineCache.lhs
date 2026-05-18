@@ -33,6 +33,7 @@ Performance Characteristics:
 >   , LinePosition  -- Opaque type, constructor not exported
 >   , ScanOrigin(..)  -- Export with constructors for pattern matching
 >   , lpOrigin   -- Export accessor for origin
+>   , emptyLinePosition  -- Sentinel position for empty-file initialization
 >   , GetLinesResult(..)
 >     
 >     -- * Creation and lifecycle
@@ -156,6 +157,15 @@ Data Types
 >   { lpOffset :: Offset        -- ^ Byte offset in file
 >   , lpOrigin :: ScanOrigin    -- ^ Scan direction/origin
 >   } deriving (Show, Eq)
+
+> -- | A sentinel `LinePosition` at offset 0 with `FromStart` origin.
+> --
+> -- Intended for callers that need to construct a valid empty state when no
+> -- real position exists yet (e.g. initializing a viewer on a zero-byte file
+> -- or after a failed initial load).  Scroll operations should not rely on
+> -- this position for actual navigation; they already guard on empty viewports.
+> emptyLinePosition :: LinePosition
+> emptyLinePosition = LinePosition 0 FromStart
 
 Creation and Lifecycle
 ----------------------

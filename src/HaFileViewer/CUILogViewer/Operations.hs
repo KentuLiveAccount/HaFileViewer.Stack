@@ -17,11 +17,34 @@ import HaFileViewer.CUILogViewer.ViewState
 import HaFileViewer.Backend.LineCache
 import HaFileViewer.Backend.BidirectionalScanner (Direction(..))
 
--- | Initialize viewer state from a file
+-- | Initialize viewer state from a file.
+--
+-- Returns a graceful empty state for zero-byte files (viewport empty, error
+-- field clear) and for initial load failures (viewport empty, error message
+-- stored in 'vsError').  The Brick UI renders an "(empty file)" indicator
+-- in both cases, and scroll operations are no-ops because of their
+-- existing empty-viewport guards.
 initializeViewer :: FilePath -> Int -> IO ViewState
 initializeViewer filepath viewportSize = do
   cache <- openLineCache filepath
   result <- getLinesFromStart cache viewportSize
+  let emptyCursor = ViewCursor
+        { cursorTopPosition    = emptyLinePosition
+        , cursorBottomPosition = emptyLinePosition
+        , cursorFirstLine      = 0
+        , cursorLastLine       = 0
+        , cursorOrigin         = FromStart
+        }
+      emptyState err = ViewState
+        { vsCache         = cache
+        , vsCursor        = emptyCursor
+        , vsViewport      = []
+        , vsViewportSize  = viewportSize
+        , vsFilePath      = filepath
+        , vsError         = err
+        , vsTabStop       = 4
+        , vsHScrollOffset = 0
+        }
   case result of
     LinesLoaded initialLines topPos bottomPos -> do
       let cursor = ViewCursor
@@ -42,8 +65,8 @@ initializeViewer filepath viewportSize = do
             , vsHScrollOffset = 0
             }
       return initialState
-    AtBoundary -> error "Cannot initialize viewer with empty file"
-    LoadFailed msg -> error ("Cannot initialize viewer: " ++ msg)
+    AtBoundary     -> return (emptyState Nothing)
+    LoadFailed msg -> return (emptyState (Just msg))
 
 -- | Scroll down by one line
 scrollDown :: ViewState -> IO ViewState
