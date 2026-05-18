@@ -1,5 +1,7 @@
 # HaFileViewer.Stack
 
+[![CI](https://github.com/KentuLiveAccount/HaFileViewer.Stack/actions/workflows/ci.yml/badge.svg)](https://github.com/KentuLiveAccount/HaFileViewer.Stack/actions/workflows/ci.yml)
+
 A high-performance log file viewer library written in Haskell, designed for efficient viewing of large log files with bidirectional scanning and intelligent caching.
 
 ## Features
