@@ -25,6 +25,40 @@ Performance Characteristics:
 - Memory: O(cache size) for content + O(lines/granularity) for sparse index
 - Large files (100MB+): Fast random access, bounded memory usage
 
+Offset Source-of-Truth Principle
+--------------------------------
+
+**Never manufacture byte offsets.**  Every byte offset used anywhere in
+this module — for keying the cache, indexing the sparse index, seeking
+in the file, or linking entries — must originate from the scanner.
+
+The scanner is the single place that knows how to translate raw file
+bytes into line-start offsets.  It handles line-ending size (LF vs CRLF),
+UTF-8 byte counting, partial lines across chunk boundaries, and other
+encoding details that are surprisingly easy to get wrong elsewhere.
+
+Concretely, this means:
+
+- **Get offsets from ``scanLinesWithOffsets``**, which returns
+  ``[(text, offset)]`` plus an ``endOffset``.  Use these values verbatim.
+
+- **Do not compute** offsets by ``length text + 1``, by re-encoding
+  ``Text`` to ``ByteString``, or by any other byte-counting arithmetic.
+  These computations look correct but break on CRLF files, multi-byte
+  UTF-8 characters, and partial-line boundaries.
+
+- **Pass offsets through** when handing off to the scanner: if a piece of
+  cache code holds an offset M and needs to scan from there, it calls the
+  scanner with M unchanged.  Both sides will agree on what M means
+  because M originally came from the scanner.
+
+This principle keeps the off-by-one risk surface as small as possible: it
+lives entirely inside the scanner, where it is tested directly, rather
+than being scattered across every consumer that touches offsets.
+
+Code-review heuristic: **any arithmetic on a byte offset in this module
+is suspicious and worth scrutiny.**
+
 > module HaFileViewer.Backend.LineCache
 >   ( -- * Types
 >     LineCache
