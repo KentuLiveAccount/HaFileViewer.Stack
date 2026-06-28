@@ -164,6 +164,50 @@ Data Types
 > buildCacheEntries ((t1, o1) : rest@((_, o2) : _)) tailNext =
 >   (o1, CacheEntry t1 o2) : buildCacheEntries rest tailNext
 
+> -- | Walk the cache forward from ``startOffset`` for at most ``count`` lines,
+> -- chasing ``ceNextOffset`` at each step.  Returns the collected entries in
+> -- ascending-offset (read) order and the offset where the next line would
+> -- begin (i.e. the continuation offset, suitable for bottomOffset).
+> --
+> -- If the chain breaks before ``count`` is reached, the partial walk is
+> -- returned along with the offset where the chain broke.  Callers that
+> -- want only pure-hit semantics should check ``length result == count``.
+> walkForwardCache :: Map.Map Offset CacheEntry -> Offset -> Int
+>                  -> ([(T.Text, Offset)], Offset)
+> walkForwardCache cache = go
+>   where
+>     go currentOffset n
+>       | n <= 0 = ([], currentOffset)
+>       | otherwise = case Map.lookup currentOffset cache of
+>           Nothing -> ([], currentOffset)
+>           Just (CacheEntry t next) ->
+>             let (rest, finalOff) = go next (n - 1)
+>             in  ((t, currentOffset) : rest, finalOff)
+
+> -- | Walk the cache backward from ``boundOffset`` (exclusive upper bound)
+> -- for at most ``count`` lines, using ``Map.lookupLT`` plus a contiguity
+> -- check (``ceNextOffset`` of the predecessor must equal the current
+> -- offset).  Returns lines in ascending-offset order (matching the
+> -- scanner's backward result order) plus the offset of the lowest line
+> -- found, which is the new topOffset.
+> --
+> -- If the chain breaks before ``count`` is reached, returns the partial
+> -- walk plus the lowest offset reached so far (or ``boundOffset`` if
+> -- nothing was found).  Pure-hit callers should compare lengths.
+> walkBackwardCache :: Map.Map Offset CacheEntry -> Offset -> Int
+>                   -> ([(T.Text, Offset)], Offset)
+> walkBackwardCache cache boundOffset count = go boundOffset count []
+>   where
+>     -- Accumulator already holds collected lines in ascending order.
+>     go currentBound n acc
+>       | n <= 0 = (acc, currentBound)
+>       | otherwise = case Map.lookupLT currentBound cache of
+>           Nothing -> (acc, currentBound)
+>           Just (prevOff, CacheEntry t next)
+>             | next == currentBound ->
+>                 go prevOff (n - 1) ((t, prevOff) : acc)
+>             | otherwise -> (acc, currentBound)  -- chain broke
+
 > -- | Line cache with integrated sparse index and content cache
 > data LineCache = LineCache
 >   { -- File information
@@ -189,6 +233,11 @@ Data Types
 >   , lcFwdLineCount    :: IORef Int       -- ^ Lines scanned forward from BOF
 >   , lcBackwardLowOff  :: IORef Offset    -- ^ Byte offset OF first backward line
 >   , lcBwdLineCount    :: IORef Int       -- ^ Lines scanned backward from EOF
+>     
+>     -- Stats counters (cumulative across all fetches; reset on invalidate)
+>   , lcContentHits     :: IORef Int       -- ^ Number of fetches fully served from cache
+>   , lcContentMisses   :: IORef Int       -- ^ Number of fetches that fell through to scan
+>   , lcTotalScanned    :: IORef Integer   -- ^ Total lines produced by the scanner
 >     
 >     -- Configuration
 >   , lcConfig      :: CacheConfig
@@ -245,6 +294,9 @@ Creation and Lifecycle
 >   fwdLineCount <- newIORef 0
 >   backwardLowOff <- newIORef (toInteger (maxBound :: Int))
 >   bwdLineCount <- newIORef 0
+>   contentHits <- newIORef 0
+>   contentMisses <- newIORef 0
+>   totalScanned <- newIORef 0
 >   
 >   return $ LineCache
 >     { lcFilePath = path
@@ -261,6 +313,9 @@ Creation and Lifecycle
 >     , lcFwdLineCount    = fwdLineCount
 >     , lcBackwardLowOff  = backwardLowOff
 >     , lcBwdLineCount    = bwdLineCount
+>     , lcContentHits     = contentHits
+>     , lcContentMisses   = contentMisses
+>     , lcTotalScanned    = totalScanned
 >     , lcConfig = config
 >     }
 
@@ -327,6 +382,31 @@ along with content, and an opaque position marker for resuming reads.
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
 >   
+>   -- Read-path kill switch.  Flip to False to ship the schema and stats
+>   -- with the chain-walking read path disabled while debugging.
+>   let cacheReadEnabled = True
+>   
+>   -- Phase 1: pure-hit short-circuit.  Walk the cache forward from offset
+>   -- 0; if it covers all ``count`` lines, return without disk I/O.
+>   cache <- readIORef (lcContent lc)
+>   let (hits, hitTailOffset) =
+>         if cacheReadEnabled then walkForwardCache cache 0 count else ([], 0)
+>   if cacheReadEnabled && length hits == count && count > 0
+>     then do
+>       modifyIORef' (lcContentHits lc) (+ 1)
+>       updateLRU lc (map snd hits)
+>       let lineNumbers = calculateForwardLineNumbers 1 count
+>           result = zip lineNumbers (map fst hits)
+>           topPos    = LinePosition (snd (head hits)) FromStart
+>           bottomPos = LinePosition hitTailOffset    FromStart
+>       return (result, topPos, bottomPos)
+>     else do
+>       when cacheReadEnabled $ modifyIORef' (lcContentMisses lc) (+ 1)
+>       getLinesFromStartScan lc count
+>
+> getLinesFromStartScan :: LineCache -> Int
+>                       -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+> getLinesFromStartScan lc count = do
 >   -- Open file handle
 >   h <- ensureHandle lc
 >   
@@ -337,6 +417,7 @@ along with content, and an opaque position marker for resuming reads.
 >   
 >   -- Use scanLinesWithOffsets to get lines with their byte offsets
 >   (linesWithOffsets, endOffset) <- scanLinesWithOffsets Forward (lcFileSize lc) readFn count
+>   modifyIORef' (lcTotalScanned lc) (+ fromIntegral (length linesWithOffsets))
 >   
 >   -- Cache ALL raw lines by offset; forward results are ascending,
 >   -- and the tail's next-offset is the scanner's endOffset.
@@ -396,6 +477,31 @@ along with content, and an opaque position marker for resuming reads.
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
 >   
+>   let cacheReadEnabled = True
+>       fileSize = lcFileSize lc
+>   
+>   -- Phase 1: pure-hit short-circuit.  Walk backward from fileSize for
+>   -- ``count`` contiguous cached lines.  The result is in ascending order.
+>   cache <- readIORef (lcContent lc)
+>   let (hits, _hitLowOffset) =
+>         if cacheReadEnabled then walkBackwardCache cache fileSize count else ([], fileSize)
+>   if cacheReadEnabled && length hits == count && count > 0
+>     then do
+>       modifyIORef' (lcContentHits lc) (+ 1)
+>       updateLRU lc (map snd hits)
+>       mTotal <- readIORef (lcTotalLines lc)
+>       let lineNumbers = calculateBackwardLineNumbers count mTotal
+>           result = zip lineNumbers (map fst hits)
+>           topPos    = LinePosition (snd (head hits)) FromEnd
+>           bottomPos = LinePosition fileSize          FromEnd
+>       return (result, topPos, bottomPos)
+>     else do
+>       when cacheReadEnabled $ modifyIORef' (lcContentMisses lc) (+ 1)
+>       getLinesFromEndScan lc count
+>
+> getLinesFromEndScan :: LineCache -> Int
+>                     -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+> getLinesFromEndScan lc count = do
 >   -- Open file handle
 >   h <- ensureHandle lc
 >   
@@ -406,6 +512,7 @@ along with content, and an opaque position marker for resuming reads.
 >   
 >   -- Use scanLinesWithOffsets in backward mode
 >   (linesWithOffsets, _scannerEndOffset) <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
+>   modifyIORef' (lcTotalScanned lc) (+ fromIntegral (length linesWithOffsets))
 >   
 >   -- Cache ALL raw lines by offset.  Backward results are ascending; the
 >   -- scanner's own endOffset for Backward is always fileSize and equals
@@ -463,11 +570,48 @@ along with content, and an opaque position marker for resuming reads.
 >
 > getLinesFrom' :: LineCache -> LinePosition -> Direction -> Int -> Integer
 >               -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
-> getLinesFrom' lc (LinePosition startOffset origin) dir count startLineNum = do
+> getLinesFrom' lc pos@(LinePosition startOffset origin) dir count startLineNum = do
 >   -- Check if file modified
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
 >   
+>   let cacheReadEnabled = True
+>   
+>   -- Phase 1: pure-hit short-circuit.
+>   cache <- readIORef (lcContent lc)
+>   let (hits, hitContinuation) = case (cacheReadEnabled, dir) of
+>         (False, _)        -> ([], startOffset)
+>         (True, Forward)   -> walkForwardCache  cache startOffset count
+>         (True, Backward)  -> walkBackwardCache cache startOffset count
+>   if cacheReadEnabled && length hits == count && count > 0
+>     then do
+>       modifyIORef' (lcContentHits lc) (+ 1)
+>       updateLRU lc (map snd hits)
+>       mTotal <- readIORef (lcTotalLines lc)
+>       let resolveLineNum n = case (mTotal, n < 0) of
+>             (Just total, True) -> total + n + 1
+>             _                  -> n
+>           lineNumbers = case dir of
+>             Forward  -> [startLineNum .. startLineNum + fromIntegral count - 1]
+>             Backward -> let resolvedStart = resolveLineNum startLineNum
+>                         in [resolvedStart - fromIntegral count + 1 .. resolvedStart]
+>           result = zip lineNumbers (map fst hits)
+>           topOffset = case dir of
+>             Forward  -> startOffset
+>             Backward -> snd (head hits)  -- lowest offset (hits are ascending)
+>           bottomOffset = case dir of
+>             Forward  -> hitContinuation  -- ceNextOffset of the last hit
+>             Backward -> startOffset
+>           topPos    = LinePosition topOffset    origin
+>           bottomPos = LinePosition bottomOffset origin
+>       return (result, topPos, bottomPos)
+>     else do
+>       when cacheReadEnabled $ modifyIORef' (lcContentMisses lc) (+ 1)
+>       getLinesFromScan lc pos dir count startLineNum
+>
+> getLinesFromScan :: LineCache -> LinePosition -> Direction -> Int -> Integer
+>                  -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
+> getLinesFromScan lc (LinePosition startOffset origin) dir count startLineNum = do
 >   -- Open file handle
 >   h <- ensureHandle lc
 >   
@@ -484,6 +628,7 @@ along with content, and an opaque position marker for resuming reads.
 >   
 >   -- Scan in the specified direction
 >   (rawLinesWithOffsets, rawEndOffset) <- scanLinesWithOffsets dir remainingSize readFn count
+>   modifyIORef' (lcTotalScanned lc) (+ fromIntegral (length rawLinesWithOffsets))
 >   
 >   -- Adjust offsets to be absolute and cache ALL raw lines by offset
 >   let adjustedLines = case dir of
@@ -591,19 +736,25 @@ Cache Management
 >   writeIORef (lcFwdLineCount lc) 0
 >   writeIORef (lcBackwardLowOff lc) (toInteger (maxBound :: Int))
 >   writeIORef (lcBwdLineCount lc) 0
+>   writeIORef (lcContentHits lc) 0
+>   writeIORef (lcContentMisses lc) 0
+>   writeIORef (lcTotalScanned lc) 0
 
 > -- | Get cache statistics (for monitoring/debugging)
 > getCacheStats :: LineCache -> IO CacheStats
 > getCacheStats lc = do
 >   content <- readIORef (lcContent lc)
 >   sparseIdx <- readIORef (lcSparseIdx lc)
+>   hits <- readIORef (lcContentHits lc)
+>   misses <- readIORef (lcContentMisses lc)
+>   scanned <- readIORef (lcTotalScanned lc)
 >   
 >   return $ CacheStats
->     { csContentHits = 0    -- TODO: Track hits
->     , csContentMisses = 0  -- TODO: Track misses
+>     { csContentHits = hits
+>     , csContentMisses = misses
 >     , csContentSize = Map.size content
 >     , csSparseSize = SI.size sparseIdx
->     , csTotalScanned = 0   -- TODO: Track scanned lines
+>     , csTotalScanned = scanned
 >     }
 
 Internal Helper Functions
