@@ -92,13 +92,11 @@ is suspicious and worth scrutiny.**
 >     -- * Pure helper functions (exported for testing)
 >   , calculateForwardLineNumbers
 >   , calculateBackwardLineNumbers
->   , extractNewPosition
 >   ) where
 
 > import Prelude hiding (lookup)
 > import qualified Data.Map.Strict as Map
 > import qualified Data.Text as T
-> import qualified Data.Text.Encoding as TE
 > import qualified Data.ByteString as BS
 > import Data.IORef
 > import Data.Time (UTCTime, getCurrentTime)
@@ -281,18 +279,6 @@ They are extracted for testability - see test_linecache_pure.hs for unit tests.
 > calculateBackwardLineNumbers count _ | count <= 0 = []
 > calculateBackwardLineNumbers count Nothing        = [negate (fromIntegral count) .. (-1)]
 > calculateBackwardLineNumbers count (Just total)   = [total - fromIntegral count + 1 .. total]
-
-> -- | Extract new position from scan results
-> -- For Forward: take offset after last line
-> -- For Backward: take offset of first line
-> extractNewPosition :: [(T.Text, Offset)] -> Direction -> Offset
-> extractNewPosition [] _ = 0  -- Empty result, stay at same position
-> extractNewPosition results Forward = 
->   let (lastText, lastOffset) = last results
->       lastLineLength = fromIntegral $ BS.length $ TE.encodeUtf8 lastText
->   in lastOffset + lastLineLength + 1  -- +1 for newline character
-> extractNewPosition results Backward = 
->   snd (head results)  -- First line's offset
 
 New Line-Oriented API with Positions
 -------------------------------------
