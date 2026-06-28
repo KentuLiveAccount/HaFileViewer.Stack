@@ -382,12 +382,12 @@ along with content, and an opaque position marker for resuming reads.
 >   modified <- checkModified lc
 >   when modified $ invalidateCache lc
 >   
->   -- Read-path kill switch.  Flip to False to ship the schema and stats
->   -- with the chain-walking read path disabled while debugging.
+>   -- Kill switch: flip to False to disable the chain-walking read path.
 >   let cacheReadEnabled = True
->   
->   -- Phase 1: pure-hit short-circuit.  Walk the cache forward from offset
->   -- 0; if it covers all ``count`` lines, return without disk I/O.
+
+Pure-hit short-circuit: walk the cache from offset 0; if it covers all
+``count`` lines, return without disk I/O.
+
 >   cache <- readIORef (lcContent lc)
 >   let (hits, hitTailOffset) =
 >         if cacheReadEnabled then walkForwardCache cache 0 count else ([], 0)
@@ -419,8 +419,7 @@ along with content, and an opaque position marker for resuming reads.
 >   (linesWithOffsets, endOffset) <- scanLinesWithOffsets Forward (lcFileSize lc) readFn count
 >   modifyIORef' (lcTotalScanned lc) (+ fromIntegral (length linesWithOffsets))
 >   
->   -- Cache ALL raw lines by offset; forward results are ascending,
->   -- and the tail's next-offset is the scanner's endOffset.
+>   -- Forward results are ascending; tail's next-offset is scanner endOffset.
 >   insertScannedLines lc linesWithOffsets endOffset
 >   
 >   -- Generate line numbers from raw results (caller sees all lines)
@@ -479,9 +478,10 @@ along with content, and an opaque position marker for resuming reads.
 >   
 >   let cacheReadEnabled = True
 >       fileSize = lcFileSize lc
->   
->   -- Phase 1: pure-hit short-circuit.  Walk backward from fileSize for
->   -- ``count`` contiguous cached lines.  The result is in ascending order.
+
+Pure-hit short-circuit: walk backward from fileSize for ``count``
+contiguous cached lines (result is ascending).
+
 >   cache <- readIORef (lcContent lc)
 >   let (hits, _hitLowOffset) =
 >         if cacheReadEnabled then walkBackwardCache cache fileSize count else ([], fileSize)
@@ -514,9 +514,7 @@ along with content, and an opaque position marker for resuming reads.
 >   (linesWithOffsets, _scannerEndOffset) <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
 >   modifyIORef' (lcTotalScanned lc) (+ fromIntegral (length linesWithOffsets))
 >   
->   -- Cache ALL raw lines by offset.  Backward results are ascending; the
->   -- scanner's own endOffset for Backward is always fileSize and equals
->   -- the bound here (we scanned [0, fileSize)).  Use fileSize directly.
+>   -- Backward over [0, fileSize): tail next-offset is fileSize (= scan bound).
 >   insertScannedLines lc linesWithOffsets (lcFileSize lc)
 >   
 >   mTotal <- readIORef (lcTotalLines lc)
@@ -532,9 +530,7 @@ along with content, and an opaque position marker for resuming reads.
 >   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
 >   writeIORef (lcSparseIdx lc) sparseIdx'
 >   
->   -- Calculate TWO positions from raw results.
->   -- For backward scan over [0, fileSize), scanner endOffset == fileSize,
->   -- which is exactly our bottomOffset.
+>   -- Bottom is fileSize: scanner endOffset for Backward over [0, fileSize).
 >   let fileSize = lcFileSize lc
 >       topOffset = if null linesWithOffsets then fileSize else snd (head linesWithOffsets)
 >       bottomOffset = fileSize
@@ -608,7 +604,17 @@ along with content, and an opaque position marker for resuming reads.
 >     else do
 >       when cacheReadEnabled $ modifyIORef' (lcContentMisses lc) (+ 1)
 >       getLinesFromScan lc pos dir count startLineNum
->
+
+Note: backward ``tailNextOffset``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a backward scan in ``getLinesFromScan`` we scanned ``[0, startOffset)``,
+so the highest-offset entry's next line begins at ``startOffset`` — the
+caller-supplied bound.  The scanner's own ``endOffset`` for ``Backward`` is
+always ``fileSize``, which would be wrong here whenever
+``startOffset < fileSize``.  Forward is simpler: the scanner's
+``endOffset`` (adjusted to absolute) is exactly the tail's next-offset.
+
 > getLinesFromScan :: LineCache -> LinePosition -> Direction -> Int -> Integer
 >                  -> IO ([(Integer, T.Text)], LinePosition, LinePosition)
 > getLinesFromScan lc (LinePosition startOffset origin) dir count startLineNum = do
@@ -637,14 +643,10 @@ along with content, and an opaque position marker for resuming reads.
 >       adjustedEndOffset = case dir of
 >         Forward  -> startOffset + rawEndOffset
 >         Backward -> rawEndOffset
->   
->   -- Insert all raw lines into the cache.  Both forward and backward
->   -- results are in ascending-offset order.  The tail's next-offset:
->   --   * Forward: scanner endOffset (adjusted to absolute)
->   --   * Backward: startOffset (caller's bound — the scanner scanned
->   --     [0, startOffset) so the highest-offset entry's next line begins
->   --     at startOffset).  The scanner's own endOffset for Backward is
->   --     always fileSize, which is wrong here when startOffset < fileSize.
+
+Tail next-offset: scanner endOffset (Forward) or caller bound (Backward).
+See "Note: backward tailNextOffset" above.
+
 >   let tailNextOffset = case dir of
 >         Forward  -> adjustedEndOffset
 >         Backward -> startOffset
