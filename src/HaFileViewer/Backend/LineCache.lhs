@@ -141,6 +141,29 @@ Configuration
 Data Types
 ----------
 
+> -- | Single cache entry: a line plus the byte offset where the *next* line
+> -- begins.  ``ceNextOffset`` is always supplied by the scanner — either as
+> -- the adjacent entry's offset, the scanner's ``endOffset`` (forward tail),
+> -- or a caller-supplied scan bound (backward tail).  Never compute it by
+> -- byte-counting ``ceText``.
+> data CacheEntry = CacheEntry
+>   { ceText       :: !T.Text
+>   , ceNextOffset :: !Offset
+>   } deriving (Show, Eq)
+
+> -- | Build ``(offset, CacheEntry)`` pairs from an ascending-offset
+> -- ``(text, offset)`` list plus the next-offset for the *last* entry.
+> --
+> -- The tail's next-offset cannot come from the entry list itself; the
+> -- caller must supply it (scanner ``endOffset`` for forward tails, the
+> -- scan bound for backward tails).  Inner entries get their next-offset
+> -- from the adjacent entry — pure scanner-origin data, no arithmetic.
+> buildCacheEntries :: [(T.Text, Offset)] -> Offset -> [(Offset, CacheEntry)]
+> buildCacheEntries [] _ = []
+> buildCacheEntries [(t, o)] tailNext = [(o, CacheEntry t tailNext)]
+> buildCacheEntries ((t1, o1) : rest@((_, o2) : _)) tailNext =
+>   (o1, CacheEntry t1 o2) : buildCacheEntries rest tailNext
+
 > -- | Line cache with integrated sparse index and content cache
 > data LineCache = LineCache
 >   { -- File information
@@ -154,7 +177,7 @@ Data Types
 >   , lcIndexStep   :: Int
 >     
 >     -- Content cache (primary storage) - keyed by file offset
->   , lcContent     :: IORef (Map.Map Offset T.Text)
+>   , lcContent     :: IORef (Map.Map Offset CacheEntry)
 >   , lcLRUOrder    :: IORef [Offset]  -- Most recent last
 >   , lcMaxContent  :: Int
 >     
@@ -315,9 +338,9 @@ along with content, and an opaque position marker for resuming reads.
 >   -- Use scanLinesWithOffsets to get lines with their byte offsets
 >   (linesWithOffsets, endOffset) <- scanLinesWithOffsets Forward (lcFileSize lc) readFn count
 >   
->   -- Cache ALL raw lines by offset
->   forM_ linesWithOffsets $ \(text, offset) ->
->     insertWithEviction lc offset text
+>   -- Cache ALL raw lines by offset; forward results are ascending,
+>   -- and the tail's next-offset is the scanner's endOffset.
+>   insertScannedLines lc linesWithOffsets endOffset
 >   
 >   -- Generate line numbers from raw results (caller sees all lines)
 >   let lineNumbers = calculateForwardLineNumbers 1 (length linesWithOffsets)
@@ -382,11 +405,12 @@ along with content, and an opaque position marker for resuming reads.
 >         BS.hGet h (fromInteger size)
 >   
 >   -- Use scanLinesWithOffsets in backward mode
->   (linesWithOffsets, endOffset) <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
+>   (linesWithOffsets, _scannerEndOffset) <- scanLinesWithOffsets Backward (lcFileSize lc) readFn count
 >   
->   -- Cache ALL raw lines by offset
->   forM_ linesWithOffsets $ \(text, offset) ->
->     insertWithEviction lc offset text
+>   -- Cache ALL raw lines by offset.  Backward results are ascending; the
+>   -- scanner's own endOffset for Backward is always fileSize and equals
+>   -- the bound here (we scanned [0, fileSize)).  Use fileSize directly.
+>   insertScannedLines lc linesWithOffsets (lcFileSize lc)
 >   
 >   mTotal <- readIORef (lcTotalLines lc)
 >   -- Generate line numbers from raw results (caller sees all lines)
@@ -401,10 +425,12 @@ along with content, and an opaque position marker for resuming reads.
 >   let sparseIdx' = SI.insertBatch indexEntries sparseIdx
 >   writeIORef (lcSparseIdx lc) sparseIdx'
 >   
->   -- Calculate TWO positions from raw results
+>   -- Calculate TWO positions from raw results.
+>   -- For backward scan over [0, fileSize), scanner endOffset == fileSize,
+>   -- which is exactly our bottomOffset.
 >   let fileSize = lcFileSize lc
 >       topOffset = if null linesWithOffsets then fileSize else snd (head linesWithOffsets)
->       bottomOffset = if null linesWithOffsets then fileSize else endOffset
+>       bottomOffset = fileSize
 >       topPos = LinePosition topOffset FromEnd
 >       bottomPos = LinePosition bottomOffset FromEnd
 >
@@ -467,8 +493,17 @@ along with content, and an opaque position marker for resuming reads.
 >         Forward  -> startOffset + rawEndOffset
 >         Backward -> rawEndOffset
 >   
->   forM_ adjustedLines $ \(text, offset) ->
->     insertWithEviction lc offset text
+>   -- Insert all raw lines into the cache.  Both forward and backward
+>   -- results are in ascending-offset order.  The tail's next-offset:
+>   --   * Forward: scanner endOffset (adjusted to absolute)
+>   --   * Backward: startOffset (caller's bound — the scanner scanned
+>   --     [0, startOffset) so the highest-offset entry's next line begins
+>   --     at startOffset).  The scanner's own endOffset for Backward is
+>   --     always fileSize, which is wrong here when startOffset < fileSize.
+>   let tailNextOffset = case dir of
+>         Forward  -> adjustedEndOffset
+>         Backward -> startOffset
+>   insertScannedLines lc adjustedLines tailNextOffset
 >   
 >   -- Calculate line numbers from raw results (caller sees all lines)
 >   mTotal <- readIORef (lcTotalLines lc)
@@ -622,8 +657,8 @@ Internal Helper Functions
 
 
 > -- | Insert a single line into cache with LRU eviction (keyed by offset)
-> insertWithEviction :: LineCache -> Offset -> T.Text -> IO ()
-> insertWithEviction lc offset content = do
+> insertWithEviction :: LineCache -> Offset -> CacheEntry -> IO ()
+> insertWithEviction lc offset entry = do
 >   cache <- readIORef (lcContent lc)
 >   lru <- readIORef (lcLRUOrder lc)
 >   
@@ -642,9 +677,18 @@ Internal Helper Functions
 >     else return (cache, lru)
 >   
 >   -- Insert new line by offset
->   let cache'' = Map.insert offset content cache'
+>   let cache'' = Map.insert offset entry cache'
 >       lru'' = filter (/= offset) lru' ++ [offset]
 >   
 >   writeIORef (lcContent lc) cache''
 >   writeIORef (lcLRUOrder lc) lru''
+
+> -- | Insert an ascending-offset list of scan results into the cache.
+> -- The ``tailNextOffset`` is the next-offset for the highest-offset entry;
+> -- it must be a scanner-origin value (e.g. scanner ``endOffset`` for
+> -- forward scans, or the caller-supplied scan bound for backward scans).
+> insertScannedLines :: LineCache -> [(T.Text, Offset)] -> Offset -> IO ()
+> insertScannedLines lc linesAsc tailNextOffset =
+>   forM_ (buildCacheEntries linesAsc tailNextOffset) $ \(off, entry) ->
+>     insertWithEviction lc off entry
 
