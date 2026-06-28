@@ -214,6 +214,92 @@ spec = describe "CR-LF Regression Tests" $ do
         length lines1 `shouldBe` 5
         map fst lines1 `shouldBe` [16..20]
 
+  describe "Cache read path (round-trip equivalence)" $ do
+    it "scroll-down-then-up: backward walk returns the same texts as forward walk" $
+      with50LineCRLFFile $ \path -> do
+        cache <- openLineCache path
+        -- Step 1: forward sweep — load 10, then 40 more one at a time.
+        (_, _, bot0) <- unwrap =<< getLinesFromStart cache 10
+        (downTexts, finalBot, finalLn) <- collectForwardOneByOne cache bot0 11 40
+        length downTexts `shouldBe` 40
+        -- Step 2: backward sweep from finalBot, 40 lines one at a time.
+        (upTexts, _, _) <- collectBackwardOneByOne cache finalBot (finalLn - 1) 40
+        length upTexts `shouldBe` 40
+        -- The backward walk visits the same lines in reverse order.
+        reverse upTexts `shouldBe` downTexts
+        -- And the backward walk should have produced real cache hits.
+        stats <- getCacheStats cache
+        csContentHits stats `shouldSatisfy` (>= 40)
+        closeLineCache cache
+
+    it "page-bounce: warm cache returns the same first page as fresh cache" $
+      with50LineCRLFFile $ \path -> do
+        -- Warm cache: load first 25 to populate, then bounce down/up.
+        warm <- openLineCache path
+        (_, _, bot1) <- unwrap =<< getLinesFromStart warm 25
+        (_, _, _) <- unwrap =<< getLinesFrom warm bot1 Forward 25 26  -- now lines 1-50 cached
+        statsBefore <- getCacheStats warm
+        (warmLines, _, _) <- unwrap =<< getLinesFromStart warm 25
+        statsAfter <- getCacheStats warm
+        csContentHits statsAfter `shouldBe` csContentHits statsBefore + 1
+        -- Fresh cache reference.
+        fresh <- openLineCache path
+        (freshLines, _, _) <- unwrap =<< getLinesFromStart fresh 25
+        warmLines `shouldBe` freshLines
+        closeLineCache warm
+        closeLineCache fresh
+
+    it "jump-start-then-end: second jumpToEnd hits the cache" $
+      with50LineCRLFFile $ \path -> do
+        cache <- openLineCache path
+        (firstEnd, _, _) <- unwrap =<< getLinesFromEnd cache 25
+        statsBefore <- getCacheStats cache
+        (secondEnd, _, _) <- unwrap =<< getLinesFromEnd cache 25
+        statsAfter <- getCacheStats cache
+        secondEnd `shouldBe` firstEnd
+        csContentHits statsAfter `shouldBe` csContentHits statsBefore + 1
+        closeLineCache cache
+
+    it "resize-bounce: smaller window from same position hits the cache" $
+      with50LineCRLFFile $ \path -> do
+        cache <- openLineCache path
+        (full, _, _) <- unwrap =<< getLinesFromStart cache 25
+        statsBefore <- getCacheStats cache
+        (small, _, _) <- unwrap =<< getLinesFromStart cache 10
+        statsAfter <- getCacheStats cache
+        map fst small `shouldBe` take 10 (map fst full)
+        map snd small `shouldBe` take 10 (map snd full)
+        csContentHits statsAfter `shouldBe` csContentHits statsBefore + 1
+        closeLineCache cache
+
+    it "frontier total-lines stays correct after a hit-heavy access pattern" $
+      with20LineFile $ \path -> do
+        cache <- openLineCache path
+        -- Trigger overlap → total = 20.
+        _ <- getLinesFromStart cache 12
+        _ <- getLinesFromEnd cache 12
+        statsBefore <- getCacheStats cache
+        -- Hit-heavy: replay the exact same fetches; both should be pure hits.
+        _ <- getLinesFromStart cache 12
+        _ <- getLinesFromEnd cache 12
+        statsAfter <- getCacheStats cache
+        csContentHits statsAfter `shouldBe` csContentHits statsBefore + 2
+        -- total-lines must still be known: getLinesFromEnd 5 should yield
+        -- positive (resolved) line numbers, not negative ones.
+        (lines5, _, _) <- unwrap =<< getLinesFromEnd cache 5
+        map fst lines5 `shouldBe` [16..20]
+        closeLineCache cache
+
+    it "cache size stays bounded by ccMaxContent under heavy scan" $
+      with50LineCRLFFile $ \path -> do
+        -- Tiny cache; scan far more than its capacity.
+        let cfg = defaultConfig { ccMaxContent = 5 }
+        cache <- openLineCacheWith path cfg
+        _ <- getLinesFromStart cache 50
+        stats <- getCacheStats cache
+        csContentSize stats `shouldSatisfy` (<= 5)
+        closeLineCache cache
+
 testLines :: [String]
 testLines = ["Line 1 content", "Line 2 longer text", "Line 3 short"]
 
@@ -268,3 +354,35 @@ readLinesOneByOne cache startPos startLine endLine
           rest <- readLinesOneByOne cache botPos (startLine + 1) endLine
           return (lines1 ++ rest)
         _ -> return []
+
+-- | Walk forward N lines from a starting position one line at a time,
+-- collecting the texts.  Returns texts, final botPos, and the next line
+-- number that *would* be fetched (i.e. startLineNum + n).
+collectForwardOneByOne :: LineCache -> LinePosition -> Integer -> Int
+                       -> IO ([T.Text], LinePosition, Integer)
+collectForwardOneByOne cache pos0 startLn n = go pos0 startLn n []
+  where
+    go pos ln 0 acc = return (reverse acc, pos, ln)
+    go pos ln k acc = do
+      res <- getLinesFrom cache pos Forward 1 ln
+      case res of
+        LinesLoaded ls _ bot -> case ls of
+          [(_, t)] -> go bot (ln + 1) (k - 1) (t : acc)
+          _        -> return (reverse acc, pos, ln)
+        _ -> return (reverse acc, pos, ln)
+
+-- | Walk backward N lines from a top position one line at a time,
+-- collecting the texts in the order they were visited (top-most line
+-- visited first, then the next line above it, etc).
+collectBackwardOneByOne :: LineCache -> LinePosition -> Integer -> Int
+                        -> IO ([T.Text], LinePosition, Integer)
+collectBackwardOneByOne cache pos0 startLn n = go pos0 startLn n []
+  where
+    go pos ln 0 acc = return (reverse acc, pos, ln)
+    go pos ln k acc = do
+      res <- getLinesFrom cache pos Backward 1 ln
+      case res of
+        LinesLoaded ls top _ -> case ls of
+          [(_, t)] -> go top (ln - 1) (k - 1) (t : acc)
+          _        -> return (reverse acc, pos, ln)
+        _ -> return (reverse acc, pos, ln)
