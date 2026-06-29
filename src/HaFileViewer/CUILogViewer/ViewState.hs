@@ -12,6 +12,7 @@ module HaFileViewer.CUILogViewer.ViewState
   , applyScrollDown
   , applyScrollUp
   , applyShift
+  , resolveMixedLineNumbers
   ) where
 
 import qualified Data.Text as T
@@ -67,19 +68,23 @@ applyLoad mOrigin vs (LinesLoaded lines topPos botPos) =
 
 -- | Apply a single-line shift to ViewState (used by scrollDown/scrollUp).
 -- Updates positions and derives new first/last line from the shifted viewport.
+-- If the new viewport mixes positive and negative line numbers (which can
+-- happen when the cache learns the total mid-scroll), the negatives are
+-- resolved to absolute line numbers via 'resolveMixedLineNumbers'.
 applyShift :: [LineWithNumber]  -- ^ New viewport after shift
            -> LinePosition      -- ^ New top position
            -> LinePosition      -- ^ New bottom position
            -> ViewState
            -> ViewState
 applyShift newViewport topPos botPos vs =
-  let newCursor = (vsCursor vs)
+  let resolved = resolveMixedLineNumbers newViewport
+      newCursor = (vsCursor vs)
         { cursorTopPosition    = topPos
         , cursorBottomPosition = botPos
-        , cursorFirstLine      = if null newViewport then 0 else fst (head newViewport)
-        , cursorLastLine       = if null newViewport then 0 else fst (last newViewport)
+        , cursorFirstLine      = if null resolved then 0 else fst (head resolved)
+        , cursorLastLine       = if null resolved then 0 else fst (last resolved)
         }
-  in vs { vsViewport = newViewport, vsCursor = newCursor }
+  in vs { vsViewport = resolved, vsCursor = newCursor }
 
 -- | Scroll down by one line, handling empty result (EOF) as no-op.
 applyScrollDown :: ViewState
@@ -110,3 +115,34 @@ shiftViewportDown viewport newLine maxSize =
 shiftViewportUp :: LineWithNumber -> [LineWithNumber] -> Int -> [LineWithNumber]
 shiftViewportUp newLine viewport maxSize =
   take maxSize (newLine : viewport)
+
+-- | Resolve negative line numbers to absolute (positive) numbers when the
+-- viewport mixes signs.
+--
+-- The cache layer assigns line numbers at fetch time based on whether
+-- @lcTotalLines@ is known.  When the user scrolls across the file and the
+-- total becomes known mid-scroll, freshly fetched lines come back as
+-- positive while older viewport entries still carry their original negative
+-- labels.  Viewport entries always represent /consecutive/ file lines, so
+-- one mixed-sign adjacent pair pins down the total:
+--
+-- * If consecutive labels are @(pos, neg)@: @total = pos + |neg|@
+-- * If consecutive labels are @(neg, pos)@: @total = pos + |neg| - 2@
+--
+-- Once the total is inferred we rewrite every negative label
+-- @-k -> total - k + 1@.  All-positive and all-negative viewports are
+-- returned unchanged.
+resolveMixedLineNumbers :: [LineWithNumber] -> [LineWithNumber]
+resolveMixedLineNumbers ls =
+  case inferTotal ls of
+    Nothing    -> ls
+    Just total -> map (resolve total) ls
+  where
+    resolve total (n, t)
+      | n < 0     = (total + n + 1, t)
+      | otherwise = (n, t)
+    inferTotal ((a, _) : rest@((b, _) : _))
+      | a > 0 && b < 0 = Just (a + abs b)
+      | a < 0 && b > 0 = Just (b + abs a - 2)
+      | otherwise      = inferTotal rest
+    inferTotal _ = Nothing

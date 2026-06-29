@@ -569,6 +569,41 @@ testEmptyFileResize = withEmptyFile $ \path -> do
         && vsError vs' == Nothing
         && vsViewportSize vs' == 30
 
+-- Test 40: scroll-up from end through previously-forward-viewed region resolves
+-- negatives once frontiers meet (regression: viewport used to keep mixed
+-- positive/negative line numbers when lcTotalLines became known mid-scroll).
+testScrollUpFromEndResolvesNegatives :: IO Bool
+testScrollUpFromEndResolvesNegatives = do
+  vs0 <- initializeViewer                 -- forward, lines 1-25 (testFile has 100 lines)
+  vs1 <- foldM (\v _ -> Ops.pageDown v) vs0 [1 :: Int ..2]  -- advance forward frontier
+  vs2 <- Ops.jumpToEnd vs1                -- backward, last 25 lines, all negative
+  let negsAfterJump = all (< 0) (map fst (vsViewport vs2))
+  -- Scroll up by 1 enough times to fully cross into the forward-viewed region
+  let scrollSome v _ = Ops.scrollUp v
+  vs3 <- foldM scrollSome vs2 [1 :: Int .. 80]
+  let nums = map fst (vsViewport vs3)
+      allPositive = all (> 0) nums
+      consecutive = areConsecutive nums
+  closeLineCache (vsCache vs3)
+  return $ negsAfterJump && allPositive && consecutive
+
+-- Test 41: resolveMixedLineNumbers pure helper handles (pos, neg) pair.
+testResolveMixedPosNeg :: IO Bool
+testResolveMixedPosNeg = do
+  -- Viewport with positive 47 followed by negative -52: total = 47 + 52 = 99.
+  -- Resolves -52 -> 99 + (-52) + 1 = 48, -51 -> 49, -50 -> 50.
+  let input  = [(47, "a"), (-52, "b"), (-51, "c"), (-50, "d")]
+      expect = [(47, "a"), (48,  "b"), (49,  "c"), (50,  "d")]
+  return $ resolveMixedLineNumbers input == expect
+
+-- Test 42: resolveMixedLineNumbers is a no-op on all-positive or all-negative viewports.
+testResolveMixedNoOp :: IO Bool
+testResolveMixedNoOp = do
+  let allPos = [(1, "a"), (2, "b"), (3, "c")]
+      allNeg = [(-3, "a"), (-2, "b"), (-1, "c")]
+  return $ resolveMixedLineNumbers allPos == allPos
+        && resolveMixedLineNumbers allNeg == allNeg
+
 -- ============================================================================
 -- MAIN
 -- ============================================================================
@@ -630,6 +665,11 @@ main = bracket
     runTest "37. jumpToEnd on empty file remains empty without error" testEmptyFileJumpToEnd
     runTest "38. jumpToStart on empty file remains empty without error" testEmptyFileJumpToStart
     runTest "39. resizeViewport on empty file remains empty without error" testEmptyFileResize
+
+    putStrLn "\n--- Line-number resolution across frontier overlap ---"
+    runTest "40. Scroll up from end resolves negatives once total is known" testScrollUpFromEndResolvesNegatives
+    runTest "41. resolveMixedLineNumbers handles (pos, neg) pair" testResolveMixedPosNeg
+    runTest "42. resolveMixedLineNumbers is no-op on uniform viewports" testResolveMixedNoOp
 
     putStrLn "\n================================"
   )
