@@ -85,6 +85,25 @@ stack ghc -- -o test_example test_example.hs
 ./test_example
 ```
 
+## Running
+
+The project ships a terminal pager, `cui-log-viewer`, for viewing a log file:
+
+```bash
+# Build first (one-time, or after code changes)
+stack build
+
+# Open a file in the pager
+stack run cui-log-viewer -- <path-to-file>
+
+# Example
+stack run cui-log-viewer -- ./my-app.log
+```
+
+The `--` separates Stack's own arguments from the program's arguments; the file path is required.
+
+**Key bindings**: `q`/`Esc` quit · `↓`/`j` and `↑`/`k` scroll one line · `PgDn`/`PgUp` page · `Home`/`g` jump to start · `End`/`G` jump to end · `←`/`h` and `→`/`l` horizontal scroll · `0` reset horizontal scroll.
+
 ## Testing
 
 The project has comprehensive test coverage:
