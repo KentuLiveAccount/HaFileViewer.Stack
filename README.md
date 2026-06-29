@@ -16,10 +16,10 @@ A high-performance log file viewer library written in Haskell, designed for effi
 
 ## Architecture
 
-The library is organized into three layers:
+The library is organized into two layers, with a Brick-based terminal UI on top:
 
 ### Layer 1: BidirectionalScanner (Low-Level)
-**Module**: `HaFileViewer.BidirectionalScanner`
+**Module**: `HaFileViewer.Backend.BidirectionalScanner`
 
 Core scanning engine that reads lines from files in either direction.
 
@@ -36,34 +36,34 @@ scanLinesWithOffsets :: Direction -> Integer -> (Offset -> Integer -> IO BS.Byte
 ```
 
 ### Layer 2: LineCache (Mid-Level)
-**Module**: `HaFileViewer.LineCache`
+**Module**: `HaFileViewer.Backend.LineCache`
 
-Caching layer with sparse index for efficient random access.
+Caching layer with LRU content cache and sparse line-number index.
 
 **Key Features**:
-- LRU eviction policy (configurable cache size)
+- LRU content cache keyed by byte offset, with chain-based hit lookup
 - Sparse index for fast seeking to any line number
 - File modification tracking (timestamp-based)
 - Integration with BidirectionalScanner for correct offset tracking
 
 **API**:
 ```haskell
-openLineCache :: FilePath -> IO LineCache
-getLines :: LineCache -> Integer -> Int -> IO [T.Text]
-getTotalLines :: LineCache -> IO Integer
-closeLineCache :: LineCache -> IO ()
+openLineCache    :: FilePath -> IO LineCache
+withLineCache    :: FilePath -> (LineCache -> IO a) -> IO a
+getLinesFromStart :: LineCache -> Int -> IO GetLinesResult
+getLinesFromEnd   :: LineCache -> Int -> IO GetLinesResult
+getLinesFrom      :: LineCache -> LinePosition -> Direction -> Int -> Integer -> IO GetLinesResult
+getCacheStats     :: LineCache -> IO CacheStats
+closeLineCache    :: LineCache -> IO ()
 ```
 
-### Layer 3: LogViewer (High-Level)
-**Module**: `HaFileViewer.LogViewer` *(Coming in Phase 2)*
+### Terminal UI: CUILogViewer
+**Modules**: `HaFileViewer.CUILogViewer.{Main,Operations,ViewState}`
 
-Convenience API for common log viewing operations.
-
-**Planned Features**:
-- Simple open/close/with-resource management
-- Convenience methods (viewFirstLines, viewLastLines)
-- Search functionality
-- Cache statistics and introspection
+A Brick/Vty pager that consumes the `LineCache` API directly — no
+intermediate convenience layer. `Operations` exposes scroll/jump/resize
+actions; `ViewState` holds the pure cursor state; `Main` wires Brick
+events.
 
 ## Building
 
@@ -79,45 +79,44 @@ stack test
 # Run specific test suite
 stack test ha-file-viewer:test:bidirectional-scanner-test
 stack test ha-file-viewer:test:linecache-test
+stack test ha-file-viewer:test:ui-systematic-test
 
-# Build and run a test program
-stack ghc -- -o test_example test_example.hs
-./test_example
+# Run the terminal pager on a file
+stack run cui-log-viewer -- <filepath>
 ```
 
 ## Testing
 
-The project has comprehensive test coverage:
+The project has three test suites, run via `stack test`:
 
-- **BidirectionalScanner Tests**: 22 tests covering forward/backward scanning, edge cases, offset tracking
-- **LineCache Tests**: 21 tests covering caching, LRU eviction, file modification detection
-- **Unit Tests**: 6 tests for `calculatePieceOffsets` helper function
-- **Validation Tests**: 5 round-trip tests proving offsets match actual file positions
+- **BidirectionalScanner**: 22 HSpec examples covering forward/backward scanning, edge cases, and offset tracking.
+- **LineCache**: 18 HSpec examples covering CR-LF handling, incremental scrolling, file modification, error propagation, and the cache hit-path round-trip equivalence.
+- **CUI systematic**: 42 custom-harness tests covering viewport state, scroll/page/jump operations, reversibility, boundary conditions, and empty-file/error paths.
 
-**Total**: 54 tests, all passing ✅
+**Total**: 82 tests, all passing ✅
 
 ## Project Structure
 
 ```
 HaFileViewer.Stack/
-├── src/
-│   └── HaFileViewer/
-│       ├── BidirectionalScanner.lhs    -- Core scanning engine
-│       ├── LineCache.lhs                -- Caching and sparse index
-│       ├── LineMap/
-│       │   └── Common.lhs               -- Shared types (Offset, Direction)
-│       └── Internal/
-│           └── SparseIndex.lhs          -- Pure sparse index implementation
-├── test/
-│   ├── BidirectionalScannerTest.lhs     -- Scanner tests
-│   └── LineCacheTest.lhs                -- Cache tests
-├── app/
-│   ├── cui/Main.hs                      -- Character UI pager (planned)
-│   └── web/Main.hs                      -- Web server (planned)
-├── ha-file-viewer.cabal                 -- Cabal package description
-├── package.yaml                         -- Stack package config (Hpack)
-├── stack.yaml                           -- Stack configuration
-└── README.md                            -- This file
+├── src/HaFileViewer/
+│   ├── Backend/
+│   │   ├── Types.lhs                       -- Shared types (Offset) + mmap helpers
+│   │   ├── BidirectionalScanner.lhs        -- Core scanning engine
+│   │   ├── SparseIndex.lhs                 -- Pure sparse index
+│   │   ├── LineCache.lhs                   -- LRU content cache + sparse index integration
+│   │   └── Test/
+│   │       ├── BidirectionalScanner.hs     -- Scanner HSpec tests
+│   │       └── LineCache.hs                -- Cache HSpec tests
+│   └── CUILogViewer/
+│       ├── Main.hs                         -- Brick/Vty entry point
+│       ├── Operations.hs                   -- Scroll/page/jump/resize actions
+│       ├── ViewState.hs                    -- Pure viewport state
+│       └── Test/Systematic.hs              -- Custom-harness UI tests
+├── ha-file-viewer.cabal                    -- Generated from package.yaml
+├── package.yaml                            -- Stack package config (Hpack, source of truth)
+├── stack.yaml                              -- Stack configuration
+└── README.md                               -- This file
 ```
 
 ## Implementation Highlights
@@ -137,7 +136,7 @@ The library tracks byte offsets **during** scanning, not afterward. This is crit
 - `extractLinesCanonical` preserves partial line offsets across chunks
 - `processChunk` correctly handles backward scan offset calculation (subtracts chunk size)
 
-See `src/HaFileViewer/BidirectionalScanner.lhs` for detailed comments explaining the implementation.
+See `src/HaFileViewer/Backend/BidirectionalScanner.lhs` for detailed comments explaining the implementation.
 
 ### Sparse Index
 
@@ -157,24 +156,33 @@ Source files use `.lhs` (Literate Haskell) format with Bird-style notation (`>`)
 
 ## Current Status
 
-### ✅ Complete (Phase 1)
-- BidirectionalScanner with offset tracking
-- LineCache with LRU caching
-- Sparse index enabled and functional
-- 54 tests passing
-- File modification detection
+### ✅ Shipped
+- `BidirectionalScanner` with in-scan offset tracking (forward + backward)
+- `LineCache` with offset-keyed LRU content cache and chain-based hit lookup
+- Sparse line-number index (write side; read side wired up alongside jump-to-line)
+- File modification detection and cache invalidation
+- Brick/Vty terminal pager (`cui-log-viewer`) backed by the cache
+- 82 tests across three suites
 
-### 📋 Planned (Phase 2)
-- LogViewer high-level API
-- Convenience methods
-- Search functionality
-- Integration tests
+### 🗺 Roadmap
 
-### 🔮 Future Optimizations (Phase 3)
-- Statistics tracking (cache hits/misses)
-- Performance profiling for large files
-- Memory usage optimization
-- getTotalLines without full scan
+Concrete next features and improvements live in [IMPROVEMENTS.md](./IMPROVEMENTS.md).
+The shortlist:
+
+- **Search / grep** with line-number-anchored results
+- **Follow mode** (`tail -f` style append-watching for live logs)
+- **Jump-to-line by absolute line number** (the read path that activates `SparseIndex.lookupNearest`)
+- **Mouse / scroll-wheel support** in the TUI
+- **Line wrapping** for narrow terminals
+
+### 🔮 Future direction: webview UI over local HTTP
+
+The longer-term plan is a second UI: a webview front-end talking to a
+local HTTP server that exposes the `LineCache` API. The current
+terminal pager and the future webview would both consume the same
+backend, with the local HTTP layer being the shared boundary. Nothing
+in the current code commits to this design — it's listed here as
+direction, not promise.
 
 ## Technical Notes
 
@@ -234,14 +242,7 @@ See LICENSE file.
 
 ## Contributing
 
-This is currently a learning/development project. Architecture decisions and implementation details are documented in session checkpoints.
-
-## Original Project Goals
-
-This workspace originally scaffolded a gigabyte-scale file viewer with:
-- CUI: Character UI pager (`app/cui/Main.hs`)
-- Web: Scotty web server with line-oriented endpoints (`app/web/Main.hs`)
-  - `/lines` endpoint with negative indexing support
-
-Those components are planned for future integration with the new LineCache/LogViewer architecture.
+This is currently a learning/development project. Architecture decisions
+and implementation details are documented in checkpoint sessions and in
+the source comments of `LineCache.lhs` and `BidirectionalScanner.lhs`.
 
