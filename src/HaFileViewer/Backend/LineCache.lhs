@@ -59,6 +59,18 @@ than being scattered across every consumer that touches offsets.
 Code-review heuristic: **any arithmetic on a byte offset in this module
 is suspicious and worth scrutiny.**
 
+> -- | Efficient line-oriented access to large files, backed by an LRU
+> -- content cache and a sparse line-number → byte-offset index.  Tracks
+> -- file modification time and invalidates on change.
+> --
+> -- Random access is O(log n) via the sparse index plus an O(n) scan to
+> -- the requested line; repeated nearby access is served from the
+> -- content cache without disk I/O.  Memory is bounded by the cache
+> -- configuration (see 'CacheConfig').
+> --
+> -- All byte offsets in this module originate from the scanner — never
+> -- compute one by byte-counting 'Data.Text.Text'.  See the preamble in
+> -- the source for the full Offset Source-of-Truth Principle.
 > module HaFileViewer.Backend.LineCache
 >   ( -- * Types
 >     LineCache
@@ -141,37 +153,44 @@ Configuration
 Data Types
 ----------
 
-> -- | Single cache entry: a line plus the byte offset where the *next* line
-> -- begins.  ``ceNextOffset`` is always supplied by the scanner — either as
-> -- the adjacent entry's offset, the scanner's ``endOffset`` (forward tail),
-> -- or a caller-supplied scan bound (backward tail).  Never compute it by
-> -- byte-counting ``ceText``.
+A single cache entry holds a line plus the byte offset where the *next*
+line begins.  ``ceNextOffset`` is always supplied by the scanner —
+either as the adjacent entry's offset, the scanner's ``endOffset``
+(forward tail), or a caller-supplied scan bound (backward tail).  Never
+compute it by byte-counting ``ceText``: ``ceText`` has been canonicalized
+(CR stripped, UTF-8 decoded), so its byte length no longer matches the
+file.  ``length ceText + 1`` is off by one on every CRLF line and wrong
+again on every multi-byte UTF-8 character.  See "Offset Source-of-Truth
+Principle" at the top of this module.
+
 > data CacheEntry = CacheEntry
 >   { ceText       :: !T.Text
 >   , ceNextOffset :: !Offset
 >   } deriving (Show, Eq)
 
-> -- | Build ``(offset, CacheEntry)`` pairs from an ascending-offset
-> -- ``(text, offset)`` list plus the next-offset for the *last* entry.
-> --
-> -- The tail's next-offset cannot come from the entry list itself; the
-> -- caller must supply it (scanner ``endOffset`` for forward tails, the
-> -- scan bound for backward tails).  Inner entries get their next-offset
-> -- from the adjacent entry — pure scanner-origin data, no arithmetic.
+``buildCacheEntries`` turns an ascending-offset ``(text, offset)`` list
+plus the next-offset for the *last* entry into ``(offset, CacheEntry)``
+pairs.  The tail's next-offset cannot come from the entry list itself;
+the caller must supply it (scanner ``endOffset`` for forward tails, the
+scan bound for backward tails).  Inner entries get their next-offset
+from the adjacent entry — pure scanner-origin data, no arithmetic.
+
 > buildCacheEntries :: [(T.Text, Offset)] -> Offset -> [(Offset, CacheEntry)]
 > buildCacheEntries [] _ = []
 > buildCacheEntries [(t, o)] tailNext = [(o, CacheEntry t tailNext)]
 > buildCacheEntries ((t1, o1) : rest@((_, o2) : _)) tailNext =
 >   (o1, CacheEntry t1 o2) : buildCacheEntries rest tailNext
 
-> -- | Walk the cache forward from ``startOffset`` for at most ``count`` lines,
-> -- chasing ``ceNextOffset`` at each step.  Returns the collected entries in
-> -- ascending-offset (read) order and the offset where the next line would
-> -- begin (i.e. the continuation offset, suitable for bottomOffset).
-> --
-> -- If the chain breaks before ``count`` is reached, the partial walk is
-> -- returned along with the offset where the chain broke.  Callers that
-> -- want only pure-hit semantics should check ``length result == count``.
+``walkForwardCache`` walks the cache forward from ``startOffset`` for at
+most ``count`` lines, chasing ``ceNextOffset`` at each step.  Returns
+the collected entries in ascending-offset (read) order and the offset
+where the next line would begin (i.e. the continuation offset, suitable
+for ``bottomOffset``).
+
+If the chain breaks before ``count`` is reached, the partial walk is
+returned along with the offset where the chain broke.  Callers that
+want only pure-hit semantics should check ``length result == count``.
+
 > walkForwardCache :: Map.Map Offset CacheEntry -> Offset -> Int
 >                  -> ([(T.Text, Offset)], Offset)
 > walkForwardCache cache = go
@@ -184,16 +203,18 @@ Data Types
 >             let (rest, finalOff) = go next (n - 1)
 >             in  ((t, currentOffset) : rest, finalOff)
 
-> -- | Walk the cache backward from ``boundOffset`` (exclusive upper bound)
-> -- for at most ``count`` lines, using ``Map.lookupLT`` plus a contiguity
-> -- check (``ceNextOffset`` of the predecessor must equal the current
-> -- offset).  Returns lines in ascending-offset order (matching the
-> -- scanner's backward result order) plus the offset of the lowest line
-> -- found, which is the new topOffset.
-> --
-> -- If the chain breaks before ``count`` is reached, returns the partial
-> -- walk plus the lowest offset reached so far (or ``boundOffset`` if
-> -- nothing was found).  Pure-hit callers should compare lengths.
+``walkBackwardCache`` walks the cache backward from ``boundOffset``
+(exclusive upper bound) for at most ``count`` lines, using
+``Map.lookupLT`` plus a contiguity check (``ceNextOffset`` of the
+predecessor must equal the current offset).  Returns lines in
+ascending-offset order (matching the scanner's backward result order)
+plus the offset of the lowest line found, which is the new
+``topOffset``.
+
+If the chain breaks before ``count`` is reached, returns the partial
+walk plus the lowest offset reached so far (or ``boundOffset`` if
+nothing was found).  Pure-hit callers should compare lengths.
+
 > walkBackwardCache :: Map.Map Offset CacheEntry -> Offset -> Int
 >                   -> ([(T.Text, Offset)], Offset)
 > walkBackwardCache cache boundOffset count = go boundOffset count []
@@ -252,11 +273,11 @@ Data Types
 >   , csTotalScanned  :: Integer -- ^ Total lines scanned
 >   } deriving (Show, Eq)
 
--- | Position within a file for line-oriented reading
--- 
--- Contains only the file offset and scan origin - no display state.
--- The cache layer is transparent file I/O; the viewer layer tracks display state.
-
+> -- | Position within a file for line-oriented reading.
+> --
+> -- Contains only the file offset and scan origin — no display state.
+> -- The cache layer is transparent file I/O; the viewer layer tracks
+> -- display state.
 > data LinePosition = LinePosition 
 >   { lpOffset :: Offset        -- ^ Byte offset in file
 >   , lpOrigin :: ScanOrigin    -- ^ Scan direction/origin
